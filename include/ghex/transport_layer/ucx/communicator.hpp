@@ -40,7 +40,9 @@ namespace gridtools {
                     using request_cb_state_type  = typename request_cb_type::state_type;
                     using message_type           = typename request_cb_type::message_type;
                     using progress_status        = gridtools::ghex::tl::cb::progress_status;
-                    
+                    template<typename T>
+                    using allocator_type         = std::allocator<T>;
+
                     worker_type*  m_recv_worker;
                     worker_type*  m_send_worker;
                     ucp_worker_h  m_ucp_rw;

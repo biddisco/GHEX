@@ -53,6 +53,8 @@ namespace gridtools {
                     using request_cb_type = request_cb<ThreadPrimitives>;
                     using message_type    = typename request_cb_type::message_type;
                     using progress_status = typename state_type::progress_status;
+                    template<typename T>
+                    using allocator_type  = std::allocator<T>;
 
                   private: // members
                     shared_state_type* m_shared_state;

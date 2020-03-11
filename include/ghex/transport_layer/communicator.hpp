@@ -42,6 +42,9 @@ namespace gridtools {
                 template<typename Msg, typename Ret = request_cb>
                 using lvalue_func  =  typename std::enable_if<!is_rvalue<Msg>::value, Ret>::type;
 
+                template<typename T>
+                using allocator_type  = typename Communicator::template allocator_type<T>;
+
             public: // ctors
                 template<typename...Args>
                 communicator(Args&& ...args) : Communicator(std::forward<Args>(args)...) {}
@@ -65,7 +68,7 @@ namespace gridtools {
                   * @tparam Allocator allocator type
                   * @param bytes size of buffer in bytes
                   * @return type erased message buffer */
-                template<typename Allocator = std::allocator<unsigned char>>
+                template<typename Allocator = allocator_type<unsigned char>>
                 static message_type make_message(std::size_t bytes) {
                     return make_message(bytes, Allocator{});
                 }
