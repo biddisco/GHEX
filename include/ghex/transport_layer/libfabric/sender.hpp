@@ -5,6 +5,7 @@
 #include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
 #include <ghex/transport_layer/libfabric/rma/atomic_count.hpp>
 //
+#include <ghex/transport_layer/libfabric/print.hpp>
 #include <ghex/transport_layer/libfabric/performance_counter.hpp>
 //
 #include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
@@ -26,6 +27,10 @@
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<true> send_deb("SENDER ");
+#undef FUNC_START_DEBUG_MSG
+#undef FUNC_END_DEBUG_MSG
+#define FUNC_START_DEBUG_MSG ::ghex::send_deb.debug(hpx::debug::str<>("*** Enter") , __func__);
+#define FUNC_END_DEBUG_MSG   ::ghex::send_deb.debug(hpx::debug::str<>("### Exit ") , __func__);
 }
 
 namespace ghex {
@@ -95,8 +100,9 @@ namespace libfabric
         // The main message send routine : package the header, send it
         // with an optional extra message region if it cannot be piggybacked
         // send chunk/rma information for all zero copy serialization regions
-        void async_write_impl(const gridtools::ghex::tl::cb::any_message& msg, int tag)
+        void async_send(const gridtools::ghex::tl::cb::any_message& msg, int tag)
         {
+            FUNC_START_DEBUG_MSG
             HPX_ASSERT(message_region_ == nullptr);
             HPX_ASSERT(completion_count_ == 0);
             // increment counter of total messages sent
@@ -106,40 +112,16 @@ namespace libfabric
             message_region_ = dynamic_cast<region_type*>(
                     memory_pool_->region_from_address(msg.data()));
 
-            // create a single chunk from the ghex message buffer
-            //            chunk_data      data_; // index or pointer
-            //            std::size_t     size_; // size of the chunktype starting index_/pos_
-            //            std::uintptr_t  rma_;  // RMA remote key, or region for parcelport put/get
-            //            std::uint8_t    type_; // chunk_type
-
-            // reserve some space for zero copy information
-            // ghex only uses one region at most (for now at least)
-            rma_regions_.reserve(1);
-
-            // for each zerocopy chunk, we must create a memory region for the data
-            // do this before creating the header as the chunk details will be copied
-            // into the header space
-//            if (msg.size()<4000) {
-//                // data fits into eager message, single rma chunk, piggybacked
-//                send_deb.debug(hpx::debug::str<>("write")
-//                    ,  "size" , hpx::debug::hex<>(msg.size())
-//                    , "type "   , "piggybacked RMA");
-//            }
-//            else {
-//                // data does not fit into eager message, single rma chunk not piggybacked
-//                // data fits into eager message, single rma chunk, piggybacked
-//                send_deb.debug(hpx::debug::str<>("write")
-//                    ,  "size" , hpx::debug::hex<>(msg.size())
-//                    , "type "   , "Non-piggybacked RMA");
-//            }
-
             detail::chunktype ghex_chunk = detail::create_rma_chunk(
                 msg.data(),
                 msg.size(),
                 message_region_->get_remote_key()
             );
 
-            rma_chunks++;
+            // reserve some space for zero copy information
+            // ghex only uses one region at most (for now at least)
+//            rma_regions_.reserve(1);
+//            rma_chunks++;
 
             // create the header using placement new in the pinned memory block
             char *header_memory = (char*)(header_region_->get_address());
@@ -149,9 +131,7 @@ namespace libfabric
             header_region_->set_message_length(header_->header_length());
             send_deb.debug(hpx::debug::str<>("header"), *header_);
 
-            // Get the block of pinned memory where the message was encoded
-            // during serialization
-            // JB GHEX TODO
+            // Get the block of pinned memory where the message resides
             message_region_->set_message_length(header_->message_size());
             HPX_ASSERT(header_->message_size() == msg.size());
 
@@ -291,9 +271,9 @@ namespace libfabric
         void handle_send_completion()
         {
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                , "handle send_completion "
-                , "RMA regions " , hpx::debug::dec<>(rma_regions_.size())
-                , "completion count " , hpx::debug::dec<>(completion_count_));
+                , "handle send_completion"
+                , "RMA regions" , hpx::debug::dec<>(rma_regions_.size())
+                , "completion count" , hpx::debug::dec<>(completion_count_));
             cleanup();
         }
 
@@ -315,7 +295,7 @@ namespace libfabric
         void cleanup()
         {
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                , "decrementing completion_count from " , hpx::debug::dec<>(completion_count_));
+                , "decrementing completion_count from", hpx::debug::dec<>(completion_count_));
 
             // if we need to wait for more completion events, return without cleaning
             if (--completion_count_ > 0)

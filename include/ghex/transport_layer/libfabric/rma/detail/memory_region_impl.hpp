@@ -76,9 +76,9 @@ namespace detail
                 memr_deb.trace(
                     hpx::debug::str<>("OK registering")
                     , hpx::debug::ptr(buffer) , hpx::debug::ptr(address_)
-                    , "desc " , hpx::debug::ptr(fi_mr_desc(region_))
-                    , "rkey " , hpx::debug::ptr(fi_mr_key(region_))
-                    , "length " , hpx::debug::hex<6>(size_));
+                    , "desc" , hpx::debug::ptr(fi_mr_desc(region_))
+                    , "rkey" , hpx::debug::ptr(fi_mr_key(region_))
+                    , "length" , hpx::debug::hex<6>(size_));
             }
         }
 
@@ -111,16 +111,14 @@ namespace detail
                 memr_deb.trace(
                     hpx::debug::str<>("OK registering")
                     , hpx::debug::ptr(buffer) , hpx::debug::ptr(address_)
-                    , "desc " , hpx::debug::ptr(fi_mr_desc(region_))
-                    , "rkey " , hpx::debug::ptr(fi_mr_key(region_))
-                    , "length " , hpx::debug::hex<6>(size_));
+                    , "desc" , hpx::debug::ptr(fi_mr_desc(region_))
+                    , "rkey" , hpx::debug::ptr(fi_mr_key(region_))
+                    , "length" , hpx::debug::hex<6>(size_));
             }
 
             memr_deb.trace(
                   hpx::debug::str<>("memory region") , hpx::debug::ptr(this)
-                , "with local key " , hpx::debug::ptr(get_local_key())
-                , "at address " , hpx::debug::ptr(get_address())
-                , "with length " , hpx::debug::hex<6>(get_size()));
+                , *this);
             return 0;
         }
 
@@ -139,7 +137,7 @@ namespace detail
         {
             if (region_ != nullptr) {
                 memr_deb.trace(hpx::debug::str<>("releasing region")
-                    , hpx::debug::ptr(get_local_key()));
+                    , *this);
                 // get these before deleting/unregistering (for logging)
                 const void *buffer = get_base_address();
                 auto length = memr_deb.declare_variable<uint64_t>(get_size());
@@ -154,8 +152,8 @@ namespace detail
                 else {
                     memr_deb.trace(hpx::debug::str<>("deregistered region")
                         , hpx::debug::ptr(get_local_key())
-                        , "at address " , hpx::debug::ptr(buffer)
-                        , "with length " , hpx::debug::hex<6>(length));
+                        , "at address" , hpx::debug::ptr(buffer)
+                        , "with length" , hpx::debug::hex<6>(length));
                 }
                 if (!get_user_region()) {
                     delete [](static_cast<const char*>(buffer));

@@ -66,20 +66,19 @@ namespace libfabric
         // dumping counters
         void receiver::cleanup()
         {
-        //        rma_receiver *rcv = nullptr;
-                //
-        //        while(receiver::rma_receivers_.pop(rcv))
-        //        {
-        //            msg_plain_    += rcv->msg_plain_;
-        //            msg_rma_      += rcv->msg_rma_;
-        //            sent_ack_     += rcv->sent_ack_;
-        //            rma_reads_    += rcv->rma_reads_;
-        //            recv_deletes_ += rcv->recv_deletes_;
-        //            recv_deb.error("Cleanup rma_receiver " , hpx::debug::dec<>(--active_rma_receivers_));
-        //            delete rcv;
-        //        }
-        }
+            rma_receiver *rcv = nullptr;
 
+            while (receiver::rma_receivers_.pop(rcv))
+            {
+//                msg_plain_    += rcv->msg_plain_;
+//                msg_rma_      += rcv->msg_rma_;
+//                sent_ack_     += rcv->sent_ack_;
+//                rma_reads_    += rcv->rma_reads_;
+//                recv_deletes_ += rcv->recv_deletes_;
+                recv_deb.error("Cleanup" , "active", hpx::debug::dec<>(--active_rma_receivers_));
+                delete rcv;
+            }
+        }
 
         // --------------------------------------------------------------------
         // Not used, provided for potential/future rma_base compatibility
@@ -111,7 +110,7 @@ namespace libfabric
                     reinterpret_cast<rma_receiver::header_type*>(region->get_address());
 
             // The message size should match the locality data size
-            HPX_ASSERT(header->message_size() == locality::array_size);
+            HPX_ASSERT(header->message_size() == locality_defs::array_size);
 
             libfabric::locality source_addr;
             std::memcpy(source_addr.fabric_data_writable(),
@@ -145,12 +144,12 @@ namespace libfabric
                 ++active_rma_receivers_;
                 recv_deb.debug(hpx::debug::str<>("rma_receiver")
                     , "Push"
-                    , hpx::debug::dec<>(active_rma_receivers_));
+                    , "active", hpx::debug::dec<>(active_rma_receivers_));
                 if (!receiver::rma_receivers_.push(recv)) {
                     // if the capacity overflowed, just delete this one
                     --active_rma_receivers_;
                     recv_deb.debug(hpx::debug::str<>("stack full 1")
-                        , hpx::debug::dec<>(active_rma_receivers_));
+                        , "active", hpx::debug::dec<>(active_rma_receivers_));
                     delete recv;
                 }
             };
@@ -186,7 +185,7 @@ namespace libfabric
             }
             --active_rma_receivers_;
             recv_deb.debug(hpx::debug::str<>("get_rma_receiver")
-                , hpx::debug::dec<>(active_rma_receivers_));
+                , "active", hpx::debug::dec<>(active_rma_receivers_));
             //
             recv->src_addr_       = src_addr;
             recv->endpoint_       = endpoint_;

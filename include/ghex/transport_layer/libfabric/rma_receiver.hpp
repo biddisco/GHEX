@@ -23,6 +23,7 @@ namespace ghex {
 #undef FUNC_END_DEBUG_MSG
 #define FUNC_START_DEBUG_MSG ::ghex::rma_deb.debug(hpx::debug::str<>("*** Enter") , __func__);
 #define FUNC_END_DEBUG_MSG   ::ghex::rma_deb.debug(hpx::debug::str<>("### Exit ") , __func__);
+#define DEB_PREFIX(c) hpx::debug::str<>(c), hpx::debug::ptr(this)
 }
 
 namespace ghex {
@@ -71,6 +72,7 @@ namespace libfabric
         // whether there are zero copy chunks to handle
         void read_message(region_type* region, fi_addr_t const& src_addr)
         {
+            FUNC_START_DEBUG_MSG
             HPX_ASSERT(rma_count_ == 0);
             HPX_ASSERT(header_ == nullptr);
             HPX_ASSERT(header_region_ == nullptr);
@@ -89,10 +91,12 @@ namespace libfabric
             HPX_ASSERT(header_);
             HPX_ASSERT(header_region_->get_address());
 
-            rma_deb.debug(hpx::debug::str<>("read_message")
-                , hpx::debug::ptr(this) , "Header : " , *header_);
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
+                , "read_message"
+                , hpx::debug::ptr(this) , "Header :" , *header_);
 
-            rma_deb.trace(hpx::debug::str<>("header memory")
+            rma_deb.trace(DEB_PREFIX("rma_receiver")
+                , "header memory"
                 , hpx::debug::mem_crc32(header_, header_->header_length(), "Header region (recv)"));
 
             if (header_->bootstrap()) {
@@ -111,8 +115,7 @@ namespace libfabric
             // how many RMA operations are needed
             rma_count_ = header_->num_zero_copy_chunks();
 
-            rma_deb.debug(hpx::debug::str<>("rma_receiver")
-                , hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "is expecting", hpx::debug::dec<>(rma_count_) , "read completions");
 
             // If we have no zero copy chunks and piggy backed data, we can
@@ -133,15 +136,15 @@ namespace libfabric
         // @TODO insert docs here
         void handle_bootstrap_message()
         {
-            rma_deb.debug(hpx::debug::str<>("handle bootstrap")
-                , hpx::debug::ptr(this));
+            FUNC_START_DEBUG_MSG
+            rma_deb.debug(DEB_PREFIX("rma_receiver"), "handle bootstrap");
             HPX_ASSERT(header_);
 
             char *piggy_back = header_->message_data();
             HPX_ASSERT(piggy_back);
 
-            rma_deb.trace(
-                hpx::debug::mem_crc32(piggy_back, header_->message_size(),
+            rma_deb.trace(DEB_PREFIX("rma_receiver")
+                , hpx::debug::mem_crc32(piggy_back, header_->message_size(),
                     "(Message region recv piggybacked - no rdma)"));
             //
             std::size_t N = header_->message_size()/sizeof(libfabric::locality);
@@ -153,7 +156,8 @@ namespace libfabric
                     reinterpret_cast<libfabric::locality*>(header_->message_data());
             for (std::size_t i=0; i<N; ++i) {
                 addresses.push_back(data[i]);
-                rma_deb.debug(hpx::debug::str<>("bootstrap received"), iplocality(data[i]));
+                rma_deb.debug(DEB_PREFIX("rma_receiver")
+                    , hpx::debug::str<>("bootstrap received"), iplocality(data[i]));
             }
             rma_deb.debug(hpx::debug::str<>("bootstrap received"), hpx::debug::dec<>(N) , "addresses");
             // controller_->recv_bootstrap_address(addresses);
@@ -165,14 +169,15 @@ namespace libfabric
         // Process a message that has no zero copy chunks
         void handle_message_no_rma()
         {
+            FUNC_START_DEBUG_MSG
             HPX_ASSERT(header_);
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "handle piggy backed send without zero copy regions");
 
             char *piggy_back = header_->message_data();
             HPX_ASSERT(piggy_back);
 
-            rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            rma_deb.trace(DEB_PREFIX("rma_receiver")
                 , hpx::debug::mem_crc32(piggy_back, header_->message_size(),
                     "(Message region recv piggybacked - no rdma)"));
 
@@ -202,11 +207,11 @@ namespace libfabric
             performance_counters::parcels::data_point& data = buffer.data_point_;
             data.bytes_ = static_cast<std::size_t>(header_->message_size());
             data.time_ = util::high_resolution_clock::now() - start_time_;
-            rma_deb.debug(hpx::debug::str<>("receiver " , hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX
                 , "calling parcel decode for complete NORMAL parcel");
             std::size_t num_thread = hpx::get_worker_thread_num();
             decode_message_with_chunks(*parcelport_, std::move(buffer), 0, chunks_, num_thread);
-            rma_deb.debug(hpx::debug::str<>("receiver " , hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX
                 , "parcel decode called for complete NORMAL (small) parcel");
 */
             cleanup_receive();
@@ -217,6 +222,7 @@ namespace libfabric
         // make an RMA read request
         void handle_message_with_zerocopy_rma()
         {
+            FUNC_START_DEBUG_MSG
             chunks_.resize(header_->num_chunks());
             char *chunk_data = header_->chunk_data();
             HPX_ASSERT(chunk_data);
@@ -225,19 +231,19 @@ namespace libfabric
                 chunks_.size() * sizeof(chunktype);
 
             std::memcpy(chunks_.data(), chunk_data, chunkbytes);
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "Copied chunk data from header : size "
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
+                , "Copied chunk data from header : size"
                 , hpx::debug::dec<>(chunkbytes));
 
             if (rma_deb.is_enabled()) {
                 for (const chunktype &c : chunks_)
                 {
-                    rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                        , "recv : chunk : size " , hpx::debug::hex<4>(c.size_)
-                        , "type "   , hpx::debug::dec<>((uint64_t)c.type_)
-                        , "rma "    , hpx::debug::ptr(c.rma_)
-                        , "cpos "   , hpx::debug::ptr(c.data_.cpos_)
-                        , "index "  , hpx::debug::dec<>(c.data_.index_));
+                    rma_deb.debug(DEB_PREFIX("rma_receiver")
+                        , "recv : chunk : size" , hpx::debug::hex<4>(c.size_)
+                        , "type"   , hpx::debug::dec<>((uint64_t)c.type_)
+                        , "rkey"   , hpx::debug::ptr(c.rma_)
+                        , "cpos"   , hpx::debug::ptr(c.data_.cpos_)
+                        , "index"  , hpx::debug::dec<>(c.data_.index_));
                 }
             }
             rma_regions_.reserve(rma_count_);
@@ -247,49 +253,13 @@ namespace libfabric
         }
 
         // --------------------------------------------------------------------
-        // Process a message where the chunk inf0ormation did not fit into
+        // Process a message where the chunk information did not fit into
         // the header. An extra RMA read of chunk data must be made before
         // the chunks can be identified (and possibly retrieved from the remote node)
         void handle_message_no_chunk_data()
         {
-            chunk_fetch_ = true;
-            // get the remote chunk block memory region details
-            auto &cb = header_->chunk_header_ptr()->chunk_rma;
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "Fetching RMA chunk for chunk data with "
-                , "size "   , hpx::debug::dec<>(cb.size_)
-                , "rma "    , hpx::debug::ptr(cb.rma_)
-                , "addr "   , hpx::debug::ptr(cb.data_.cpos_));
-
-            // we need a local memory region to read the chunks into
-            chunk_region_ = memory_pool_->allocate_region(cb.size_);
-            chunk_region_->set_message_length(cb.size_);
-            uint64_t rkey1 = cb.rma_;
-            const void *remoteAddr1 = cb.data_.cpos_;
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "Fetching chunk region with size " , hpx::debug::dec<>(cb.size_));
-            rma_count_ = 1;
-
-            // if the message region requires rma-get, we can get it now as well
-            if (!header_->message_piggy_back())
-            {
-                auto &mc = header_->message_chunk_ptr()->message_rma;
-                message_region_ = memory_pool_->allocate_region(mc.size_);
-                message_region_->set_message_length(mc.size_);
-                uint64_t rkey2 = mc.rma_;
-                const void *remoteAddr2 = mc.data_.cpos_;
-                rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                    , "Fetching message region with size " , hpx::debug::dec<>(mc.size_));
-                ++rma_count_;
-                // call the rma read function for the message chunk
-                read_one_chunk(src_addr_, message_region_, remoteAddr2, rkey2);
-            }
-
-            // call the rma read function for the chunk-info chunk
-            // we do this last so that a completion does not come before the message
-            // chunk read has been triggered - this would cause the rma receive to decrement
-            // the counter and might hit zero before we had sent the second request
-            read_one_chunk(src_addr_, chunk_region_, remoteAddr1, rkey1);
+            FUNC_START_DEBUG_MSG
+            throw fabric_error(0, "GHEX unsupported handle_message_no_chunk_data");
         }
 
         // --------------------------------------------------------------------
@@ -297,6 +267,7 @@ namespace libfabric
         // and initiate further rma reads if necessary
         int handle_chunks_read_message()
         {
+            FUNC_START_DEBUG_MSG
             char *chunk_data = chunk_region_->get_address();
             HPX_ASSERT(chunk_data);
             //
@@ -304,9 +275,9 @@ namespace libfabric
             uint64_t num_chunks = chunkbytes/sizeof(chunktype);
             chunks_.resize(num_chunks);
             std::memcpy(chunks_.data(), chunk_data, chunkbytes);
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "Copied chunk data from chunk_region: size " , hpx::debug::dec<>(chunkbytes)
-                , "with num chunks " , hpx::debug::dec<>(num_chunks));
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
+                , "Copied chunk data from chunk_region: size" , hpx::debug::dec<>(chunkbytes)
+                , "with num chunks" , hpx::debug::dec<>(num_chunks));
             //
             HPX_ASSERT(rma_regions_.size() == 0);
             //
@@ -320,7 +291,7 @@ namespace libfabric
             // this is the number of rma-completions we must wait for
             rma_count_ = zc_count;
             //
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "Restarting RMA reads with " , hpx::debug::dec<>(zc_count) , "rma chunks");
             // do not return rma_count_ as it might already have decremented! (racey)
             read_chunk_list();
@@ -342,7 +313,7 @@ namespace libfabric
             // for the other incoming read completions
             if (--rma_count_ > 0)
             {
-                rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.debug(DEB_PREFIX("rma_receiver")
                     , "Not yet read all RMA regions " , hpx::debug::ptr(this));
                 FUNC_START_DEBUG_MSG;
                 return;
@@ -353,7 +324,7 @@ namespace libfabric
             // when the chunk structure could not be piggybacked, the chunk_fetch_
             // flag is set prior to reading the chunks.
             if (chunk_fetch_) {
-                rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.debug(DEB_PREFIX("rma_receiver")
                     , "rma read chunk list complete");
                 if (handle_chunks_read_message()>0) {
                     // more rma reads have been started, so exit and wait for them
@@ -361,7 +332,7 @@ namespace libfabric
                 }
             }
             else {
-                rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.debug(DEB_PREFIX("rma_receiver")
                     , "all RMA regions now read ");
             }
 
@@ -377,7 +348,7 @@ namespace libfabric
                     chunks_.resize(chunks_.size()-1);
                 }
                 else {
-                    rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                    rma_deb.debug(DEB_PREFIX("rma_receiver")
                         , "No piggy back message or chunks");
                     // message region should have been read by handle_message_no_chunk_data
                     HPX_ASSERT(message_region_);
@@ -390,12 +361,12 @@ namespace libfabric
             {
                 message = static_cast<char *>(message_region_->get_address());
                 HPX_ASSERT(message);
-                rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.debug(DEB_PREFIX("rma_receiver")
                     , "No piggy_back RDMA message "
                     , "region " , hpx::debug::ptr(message_region_)
                     , "address " , hpx::debug::ptr(message_region_->get_address())
                     , "length " , hexuint32(message_length));
-                rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.trace(DEB_PREFIX("rma_receiver")
                     , hpx::debug::mem_crc32(message, message_length, "Message region (recv rdma)"));
 
                 // do this after dumping out data as otherwise we lose some debug info
@@ -405,7 +376,7 @@ namespace libfabric
             {
                 HPX_ASSERT(header_->message_data());
                 message = header_->message_data();
-                rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.trace(DEB_PREFIX("rma_receiver")
                     , hpx::debug::mem_crc32(message, message_length,
                     "Message region (recv piggyback with rdma)"));
             }
@@ -413,20 +384,13 @@ namespace libfabric
             for (auto &r : rma_regions_)
             {
                 HPX_UNUSED(r);
-                rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                rma_deb.trace(DEB_PREFIX("rma_receiver")
                     , hpx::debug::mem_crc32(r->get_address(), r->get_message_length(),
                     "rdma region (recv) "));
             }
 
-            // send messgae into hpx parcel decode
+            // message is complete - process it
 /*
-            // wrap the message and chunks into a pinned vector so that they
-            // can be passed into the parcel decode functions and when released have
-            // the pinned buffers returned to the memory pool
-            typedef pinned_memory_vector<char, header_size, region_type, memory_pool_type>
-                rcv_data_type;
-            typedef parcel_buffer<rcv_data_type, std::vector<char>> rcv_buffer_type;
-
             rcv_data_type wrapped_pointer(message, message_length,
                 [this, message, message_length]()
                 {
@@ -439,14 +403,15 @@ namespace libfabric
 
             rcv_buffer_type buffer(std::move(wrapped_pointer), nullptr);
 
-            LOG_EXCLUSIVE(
+            if (rma_deb.is_enabled()) {
                 for (chunktype &c : chunks_) {
                     rma_deb.debug(hpx::debug::str<>("get : chunk : size " , hpx::debug::hex<4>(c.size_)
                         , "type "   , hpx::debug::dec<>((uint64_t)c.type_)
                         , "rma "    , hpx::debug::ptr(c.rma_)
                         , "cpos "   , hpx::debug::ptr(c.data_.cpos_)
                         , "index "  , hpx::debug::dec<>(c.data_.index_));
-            });
+                }
+            }
 
             int zc_chunks =
                 std::count_if(chunks_.begin(), chunks_.end(), [](chunktype &c) {
@@ -461,14 +426,14 @@ namespace libfabric
             data.bytes_ = static_cast<std::size_t>(header_->message_size());
             data.time_ = util::high_resolution_clock::now() - start_time_;
 
-            rma_deb.debug(hpx::debug::str<>("receiver " , hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX
                 , "calling parcel decode for ZEROCOPY complete parcel");
             std::size_t num_thread = hpx::get_worker_thread_num();
             decode_message_with_chunks(*parcelport_, std::move(buffer), 0, chunks_, num_thread);
-            rma_deb.debug(hpx::debug::str<>("receiver " , hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX
                 , "parcel decode called for ZEROCOPY complete parcel");
 
-            rma_deb.debug(hpx::debug::str<>("receiver " , hpx::debug::ptr(this) , "Sending ack");
+            rma_deb.debug(DEB_PREFIX , "Sending ack");
             send_rdma_complete_ack();
 */
             cleanup_receive();
@@ -480,7 +445,8 @@ namespace libfabric
         // of the parcel so that it can release the RMA regions it is holding onto
         void send_rdma_complete_ack()
         {
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            FUNC_START_DEBUG_MSG
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "RDMA Get tag " , hexuint64(header_->tag())
                 , "has completed : posting 8 byte ack to origin");
 
@@ -501,7 +467,7 @@ namespace libfabric
                 }
                 else if (ret == -FI_EAGAIN)
                 {
-                    rma_deb.error(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                    rma_deb.error(DEB_PREFIX("rma_receiver")
                         , "reposting fi_inject...\n");
                     std::this_thread::sleep_for(std::chrono::microseconds(1));
                 }
@@ -516,7 +482,8 @@ namespace libfabric
         // After message processing is complete, this routine cleans up and resets
         void cleanup_receive()
         {
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            FUNC_START_DEBUG_MSG
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "cleanup for receiver rma " , hpx::debug::ptr(this));
             //
             HPX_ASSERT(rma_count_ == 0);
@@ -544,7 +511,7 @@ namespace libfabric
             rma_regions_.clear();
             chunks_.clear();
             //
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "Cleaned up, posting self back to rma stack");
             handler_(this);
         }
@@ -554,6 +521,7 @@ namespace libfabric
         // in the chunks_ variable
         void read_chunk_list()
         {
+            FUNC_START_DEBUG_MSG
             for (chunktype &c : chunks_)
             {
                 if (c.type_ == detail::chunk_type_pointer ||
@@ -564,7 +532,7 @@ namespace libfabric
                     // Set the used space limit to the incoming buffer size
                     get_region->set_message_length(c.size_);
 
-                    rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                    rma_deb.trace(DEB_PREFIX("rma_receiver")
                         , hpx::debug::mem_crc32(get_region->get_address(), c.size_,
                             "(RDMA GET region (new))"));
 
@@ -574,7 +542,7 @@ namespace libfabric
                     if (c.type_ == detail::chunk_type_rma) {
                         // rma object/vector chunks are not deleted
                         // so do not add them to the rma_regions list for cleanup
-                        rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                        rma_deb.trace(DEB_PREFIX("rma_receiver")
                             , "Passing rma region to chunk structure");
                         c.rma_ = std::uintptr_t(get_region);
                     }
@@ -584,11 +552,11 @@ namespace libfabric
                     // overwrite the serialization chunk data pointer because the chunk
                     // info sent contains the pointer to the remote data and when we
                     // decode the parcel we want the chunk to point to the local copy of it
-                    const void *remoteAddr = c.data_.cpos_;
+                    const void *remote_addr = c.data_.cpos_;
                     c.data_.cpos_ = get_region->get_address();
 
                     // call the rma read function for the chunk
-                    read_one_chunk(src_addr_, get_region, remoteAddr, remote_key);
+                    read_one_chunk(src_addr_, get_region, remote_addr, remote_key);
                 }
             }
         }
@@ -597,19 +565,20 @@ namespace libfabric
         // convenience function to execute a read, given the right params
         void read_one_chunk(
             fi_addr_t src_addr, region_type *get_region,
-            const void *remoteAddr, uint64_t rkey)
+            const void *remote_addr, uint64_t rkey)
         {
+            FUNC_START_DEBUG_MSG
             // post the rdma read/get
-            rma_deb.debug(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "RDMA Get fi_read :"
-                , "client " , hpx::debug::ptr(endpoint_)
-                , "fi_addr " , hpx::debug::ptr(src_addr_)
-                , "tag " , hexuint64(header_->tag())
-                , "local addr " , hpx::debug::ptr(get_region->get_address())
-                , "local local key " , hpx::debug::ptr(get_region->get_local_key())
-                , "size " , hpx::debug::hex<6>(get_region->get_message_length())
-                , "rkey " , hpx::debug::ptr(rkey)
-                , "remote cpos " , hpx::debug::ptr(remoteAddr));
+            rma_deb.debug(DEB_PREFIX("rma_receiver")
+                , "RDMA Get fi_read"
+                , "client" , hpx::debug::ptr(endpoint_)
+                , "fi_addr" , hpx::debug::ptr(src_addr_)
+                , "tag" , hpx::debug::ptr(header_->tag())
+                , "local addr" , hpx::debug::ptr(get_region->get_address())
+                , "local key" , hpx::debug::ptr(get_region->get_local_key())
+                , "size" , hpx::debug::hex<6>(get_region->get_message_length())
+                , "rkey" , hpx::debug::ptr(rkey)
+                , "remote cpos" , hpx::debug::ptr(remote_addr));
 
             // count reads
             ++rma_reads_;
@@ -622,21 +591,21 @@ namespace libfabric
                         reinterpret_cast<uint32_t*>(get_region->get_address());
                     std::fill(buffer, buffer + get_region->get_size()/4,
                        0xDEADC0DE);
-                    rma_deb.trace(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                    rma_deb.trace(DEB_PREFIX("rma_receiver")
                         , hpx::debug::mem_crc32(get_region->get_address(), get_region->get_message_length(),
                                   "(RDMA GET region (pre-fi_read))"));
                 }
 
                 ssize_t ret = fi_read(endpoint_, get_region->get_address(),
                     get_region->get_message_length(), get_region->get_local_key(),
-                    src_addr_, (uint64_t)(remoteAddr), rkey, this);
+                    src_addr_, (uint64_t)(remote_addr), rkey, this);
 
                 if (ret==0) {
                     ok = true;
                 }
                 else if (ret == -FI_EAGAIN)
                 {
-                    rma_deb.error(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
+                    rma_deb.error(DEB_PREFIX("rma_receiver")
                         , "reposting fi_read...\n");
 //                    parcelport_->background_work(0,
 //                        hpx::parcelset::parcelport_background_mode_all);
@@ -654,9 +623,10 @@ namespace libfabric
         // handling this object as an fi_context
         void handle_error(struct fi_cq_err_entry err)
         {
-            rma_deb.error(hpx::debug::str<>("rma_receiver"), hpx::debug::ptr(this)
-                , "rma_receiver handling an error (unimplemented)"
+            rma_deb.error(DEB_PREFIX("rma_receiver")
+                , "rma_receiver handling error"
                 , hpx::debug::ptr(this));
+            throw fabric_error(-int(err.err), "fi_read");
         }
 
     private:

@@ -20,7 +20,7 @@ namespace rma
     // --------------------------------------------------------------------
     // a base class that provides an API for creating/accessing
     // pinned memory blocks. This will be overridden by concrete
-    // implementations for each parcelport.
+    // implementations for each provider type.
     // --------------------------------------------------------------------
     class memory_region
     {
@@ -129,7 +129,9 @@ namespace rma
                 << " address " << hpx::debug::ptr(region.address_)
                 << " flags " << hpx::debug::hex<2>(region.flags_)
                 << " size " << hpx::debug::hex<6>(region.size_)
-                << " used_space " << hpx::debug::hex<6>(region.used_space_);
+                << " used_space " << hpx::debug::hex<6>(region.used_space_)
+                << " local key " << hpx::debug::ptr(region.get_local_key())
+                << " remote key " << hpx::debug::ptr(region.get_remote_key());
             return os;
         }
 

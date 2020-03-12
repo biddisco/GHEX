@@ -818,9 +818,9 @@ namespace libfabric
                 cnt_deb.debug(hpx::debug::str<>("Completion")
                     , "txcq wr_id"
                     , fi_tostr(&entry.flags, FI_TYPE_OP_FLAGS)
-                    , " (" , hpx::debug::dec<>(entry.flags) , ") "
-                    , "context " , hpx::debug::ptr(entry.op_context)
-                    , "length " , hpx::debug::hex<8>(entry.len));
+                    , "(" , hpx::debug::dec<>(entry.flags) , ")"
+                    , "context" , hpx::debug::ptr(entry.op_context)
+                    , "length" , hpx::debug::hex<8>(entry.len));
                 if (entry.flags & FI_RMA) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq RMA"
@@ -835,7 +835,7 @@ namespace libfabric
                     handler->handle_send_completion();
                 }
                 else {
-                    cnt_deb.error("$$$$$ Received an unknown txcq completion ***** "
+                    cnt_deb.error("$$$$$ Received an unknown txcq completion *****"
                         , hpx::debug::dec<>(entry.flags));
                     std::terminate();
                 }
@@ -853,7 +853,8 @@ namespace libfabric
                 // On error, a negative value corresponding to
                 // 'fabric errno' is returned
                 if(e.err == err_sz) {
-                    cnt_deb.error("txcq Error FI_EAVAIL with len " , hpx::debug::hex<6>(e.len)
+                    cnt_deb.error(
+                          "txcq Error FI_EAVAIL with len " , hpx::debug::hex<6>(e.len)
                         , "context " , hpx::debug::ptr(e.op_context));
                 }
                 // flags might not be set correctly
@@ -861,10 +862,10 @@ namespace libfabric
                     cnt_deb.error("txcq Error FI_EAVAIL for FI_SEND with len " , hpx::debug::hex<6>(e.len)
                         , "context " , hpx::debug::ptr(e.op_context));
                 }
-//                if (e.flags & FI_RMA) {
-//                    cnt_deb.error("txcq Error FI_EAVAIL for FI_RMA with len " , hpx::debug::hex<6>(e.len)
-//                        , "context " , hpx::debug::ptr(e.op_context));
-//                }
+                if (e.flags & FI_RMA) {
+                    cnt_deb.error("txcq Error FI_EAVAIL for FI_RMA with len" , hpx::debug::hex<6>(e.len)
+                        , "context " , hpx::debug::ptr(e.op_context));
+                }
                 rma_base *base = reinterpret_cast<rma_base*>(e.op_context);
                 switch (base->context_type()) {
                     case ctx_sender:
@@ -901,10 +902,10 @@ namespace libfabric
                 cnt_deb.debug(hpx::debug::str<>("Completion")
                     , "rxcq wr_id "
                     , fi_tostr(&entry.flags, FI_TYPE_OP_FLAGS)
-                    , " (" , hpx::debug::dec<>(entry.flags) , ") "
-                    , "source " , hpx::debug::ptr(src_addr)
-                    , "context " , hpx::debug::ptr(entry.op_context)
-                    , "length " , hpx::debug::hex<8>(entry.len));
+                    , "(" , hpx::debug::dec<>(entry.flags) , ")"
+                    , "source" , hpx::debug::ptr(src_addr)
+                    , "context" , hpx::debug::ptr(entry.op_context)
+                    , "length" , hpx::debug::hex<8>(entry.len));
                 if (src_addr == FI_ADDR_NOTAVAIL)
                 {
                     cnt_deb.debug(hpx::debug::str<>("New connection?")

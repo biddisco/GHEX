@@ -307,8 +307,8 @@ namespace hpx { namespace debug {
             const uint64_t* uintBuf = static_cast<const uint64_t*>(p.addr_);
             os << "Memory:";
             os << " address " << hpx::debug::ptr(p.addr_) << " length "
-               << hpx::debug::hex<8>(p.len_) << " CRC32:\n"
-               << hpx::debug::hex<8>(crc32(p.addr_, p.len_)) << " ";
+               << hpx::debug::hex<8>(p.len_) << " CRC32:"
+               << hpx::debug::hex<8>(crc32(p.addr_, p.len_)) << "\n";
             for (size_t i = 0; i < (std::min)(p.len_ / 8, size_t(128)); i++)
             {
                 os << hpx::debug::hex<16>(*uintBuf++) << " ";

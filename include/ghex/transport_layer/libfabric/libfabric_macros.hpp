@@ -3,7 +3,7 @@
 
 #define HPX_UNUSED(x) (void) x
 
-#ifndef NDEBUG
+#ifdef NDEBUG
 
 #define HPX_ASSERT(expr)
 #define HPX_ASSERT_MSG(expr, msg)
@@ -12,11 +12,11 @@
 
 #define HPX_ASSERT(expr)                                             \
     (!!(expr) ? void() :                                             \
-        throw std::runtime_error("Assertion");
+        throw std::runtime_error("Assertion"));
 
 #define HPX_ASSERT_MSG(expr, msg)                                    \
     (!!(expr) ? void() :                                             \
-        throw std::runtime_error(msg);
+        throw std::runtime_error(msg));
 
 #endif
 

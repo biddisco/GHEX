@@ -198,7 +198,7 @@ namespace gridtools {
                         FUNC_START_DEBUG_MSG
                         ::ghex::tl::libfabric::sender *sndr = m_shared_state->m_controller->get_sender(dst);
 
-                        sndr->async_write_impl(msg, tag);
+                        sndr->async_send(msg, tag);
 
 /*
                         GHEX_CHECK_MPI_RESULT(MPI_Isend(reinterpret_cast<const void*>(msg.data()),

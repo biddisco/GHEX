@@ -164,14 +164,17 @@ namespace libfabric
     public:
         // NB. first  = rma zero-copy
         //     second = ptr
-        header(const detail::chunktype &ghex_chunk, void* tag)
+        header(const detail::chunktype &ghex_msg_chunk, void* tag)
         {
-            message_header.flags = 0;
-            message_header.num_chunks = 1;
-            message_header.flags |= (ghex_chunk.type_==detail::chunk_type_rma)     ? zerocopy_flag : 0;
-            message_header.flags |= (ghex_chunk.type_==detail::chunk_type_pointer) ? normal_flag : 0;
+/*
+            uint32_t *buffer =
+                reinterpret_cast<uint32_t*>(&message_header);
+            std::fill(buffer, buffer + (SIZE/4), 0xDEADC0DE);
+*/
+            message_header.flags      = 0;
+            message_header.num_chunks = 0;
 
-            // space occupied by chunk data
+            // space occupied by chunk data (not needed in GHEX)
             size_t chunkbytes = message_header.num_chunks * sizeof(detail::chunktype);
 
             // can we send the chunk info inside the header
@@ -181,35 +184,22 @@ namespace libfabric
                 message_header.flags |= chunk_flag;
                 // copy chunk data directly into the header
                 std::memcpy(
-                    &data_[chunk_data_offset()], &ghex_chunk, chunkbytes);
+                    &data_[chunk_data_offset()], &ghex_msg_chunk, chunkbytes);
             }
             else
             {
-                // in ghex this should currently not be called
-                head_deb.debug(hpx::debug::str<>("Too many chunks"),
-                    hpx::debug::dec<>(message_header.num_chunks), "requires bytes ",
-                    hpx::debug::dec<>(chunkbytes));
-                message_header.flags &= ~chunk_flag;
-                message_header.flags |= zerocopy_flag;
-                // send just rma-get information, address and rma key will be added later
-                detail::chunk_header* ch =
-                    reinterpret_cast<detail::chunk_header*>(
-                        &data_[chunk_data_offset()]);
-                ch->num_rma_chunks = 1; //
-                ch->chunk_rma =
-                    detail::create_pointer_chunk(nullptr, chunkbytes);
-                // reset chunkbytes size to size of rma hunk header
-                chunkbytes = sizeof(detail::chunk_header);
+                head_deb.error(hpx::debug::str<>("unsupported")
+                    , "Extra chunks should not be present (yet?)");
             }
 
             // can we send main message inside the header
-            if (ghex_chunk.size_ <=
+            if (ghex_msg_chunk.size_ <=
                 (data_size_ - chunkbytes - sizeof(detail::message_info) -
                     sizeof(detail::rma_info)))
             {
                 message_header.flags |= message_flag;
                 detail::message_info* info = message_info_ptr();
-                info->message_size = ghex_chunk.size_;
+                info->message_size = ghex_msg_chunk.size_;
             }
             else
             {
@@ -220,22 +210,14 @@ namespace libfabric
                     // if chunks are piggybacked, just add one rma chunk for the message
                     message_header.num_chunks += 1;
                     detail::chunktype message = detail::create_pointer_chunk(
-                        nullptr, ghex_chunk.size_);
+                        nullptr, ghex_msg_chunk.size_);
                     std::memcpy(
                         &data_[chunkbytes], &message, sizeof(detail::chunktype));
                 }
                 else
                 {
-                    // the message isn't piggybacked and neither is the chunk data
-                    // so we must add rma-get information for the message
-                    detail::message_chunk* mc =
-                        reinterpret_cast<detail::message_chunk*>(
-                            &data_[message_info_offset()]);
-                    head_deb.debug(hpx::debug::str<>("chunk free size"),
-                        hpx::debug::dec<>(ghex_chunk.size_), "offset ",
-                        hpx::debug::dec<>(message_info_offset()));
-                    mc->message_rma = detail::create_pointer_chunk(
-                        nullptr, ghex_chunk.size_);
+                    head_deb.error(hpx::debug::str<>("unsupported")
+                        , "chunk info should be in message");
                 }
             }
 
@@ -279,7 +261,7 @@ namespace libfabric
                << hpx::debug::dec<>((h.chunk_ptr() ? h.num_index_chunks() : 0))
                << ")"
                << " piggyback " << hpx::debug::dec<>((h.message_piggy_back()))
-               << " tag " << hpx::debug::hex<16>(h.tag());
+               << " tag " << hpx::debug::ptr(h.tag());
             return os;
         }
 
@@ -540,7 +522,7 @@ namespace libfabric
             }
             // the last chunk will be our RMA message chunk
             chunks->rma_ = rkey;
-//            chunks->data_.cpos_ = addr;
+            chunks->data_.cpos_ = addr;
         }
 
         std::uint32_t num_chunks() const
