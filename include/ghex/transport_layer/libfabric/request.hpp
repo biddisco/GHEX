@@ -15,6 +15,7 @@
 #include "../context.hpp"
 #include "../callback_utils.hpp"
 #include "../../threads/atomic/primitives.hpp"
+#include <ghex/transport_layer/libfabric/controller.hpp>
 
 namespace gridtools{
     namespace ghex {
@@ -27,28 +28,38 @@ namespace gridtools{
             /** @brief thin wrapper around MPI_Request */
             struct request_t
             {
-                GHEX_C_STRUCT(req_type, MPI_Request)
-                req_type m_req = MPI_REQUEST_NULL;
-                request_kind m_kind = request_kind::none;
+                using controller_type = ::ghex::tl::libfabric::controller;
+                controller_type *m_controller = nullptr;
+                request_kind m_kind           = request_kind::none;
+                std::unique_ptr<bool> m_ready = nullptr;
 
-                void wait()
-                {
-                    //MPI_Status status;
-                    GHEX_CHECK_MPI_RESULT(MPI_Wait(&m_req.get(), MPI_STATUS_IGNORE));
-                }
+                request_t() noexcept = default;
+
+//                request_t(controller_type *cont, ) noexcept
+//                    : m_controller(cont)
+//                    , m_kind(request_kind::none)
+//                    , m_ready(false) {}
 
                 bool test()
                 {
-                    //MPI_Status result;
-                    int flag = 0;
-                    GHEX_CHECK_MPI_RESULT(MPI_Test(&m_req.get(), &flag, MPI_STATUS_IGNORE));
-                    return flag != 0;
+//                    if (!m_controller) return true;
+                    if (!*m_ready) {
+                        m_controller->poll_for_work_completions();
+                    }
+                    return *m_ready;
                 }
 
-                operator       MPI_Request&()       noexcept { return m_req; }
-                operator const MPI_Request&() const noexcept { return m_req; }
-                      MPI_Request& get()       noexcept { return m_req; }
-                const MPI_Request& get() const noexcept { return m_req; }
+                void wait()
+                {
+                    if (!m_controller) return;
+                    while (!test());
+                }
+
+                bool cancel()
+                {
+                    // @TODO not yet implemented
+                }
+
             };
 
             } // namespace libfabric

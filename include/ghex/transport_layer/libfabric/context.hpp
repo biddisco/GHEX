@@ -41,22 +41,22 @@ namespace gridtools {
             state_type m_state;
             state_vector m_states;
 
-            using controller_type = std::shared_ptr<::ghex::tl::libfabric::controller>;
-            controller_type controller_;
-            std::mutex      creation_mutex_;
+            using controller_type = ::ghex::tl::libfabric::controller;
+            using controller_shared = std::shared_ptr<controller_type>;
+            controller_shared controller_;
+            std::mutex        creation_mutex_;
 
             // --------------------------------------------------
             // create a sngleton shared_ptr to a controller that
             // can be shared between ghex context objects
-            static controller_type init_libfabric_controller(int m_rank, int m_size, MPI_Comm mpi_comm) {
-                static controller_type instance = controller_type(
-                    new ::ghex::tl::libfabric::controller(
+            static controller_type *init_libfabric_controller(int m_rank, int m_size, MPI_Comm mpi_comm) {
+                static controller_type *instance = new controller_type(
                         GHEX_LIBFABRIC_PROVIDER,
                         GHEX_LIBFABRIC_DOMAIN,
                         GHEX_LIBFABRIC_ENDPOINT,
                         false,
                         m_rank, m_size, mpi_comm
-                    ));
+                    );
                 return instance;
             }
 
@@ -73,7 +73,7 @@ namespace gridtools {
                 int m_rank{ [](MPI_Comm c){ int r; GHEX_CHECK_MPI_RESULT(MPI_Comm_rank(c,&r)); return r; }(mpi_comm) };
                 int m_size{ [](MPI_Comm c){ int s; GHEX_CHECK_MPI_RESULT(MPI_Comm_size(c,&s)); return s; }(mpi_comm) };
 
-                controller_ = init_libfabric_controller(m_rank, m_size, mpi_comm);
+                controller_ = controller_shared(init_libfabric_controller(m_rank, m_size, mpi_comm));
                 m_shared_state.m_controller = controller_;
 
                 ctx_deb.debug(hpx::debug::str<>("controller refcount"),

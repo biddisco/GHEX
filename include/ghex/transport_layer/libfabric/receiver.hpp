@@ -23,8 +23,8 @@ namespace ghex {
 
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::recv_deb.debug(hpx::debug::str<>("*** Enter") , __func__);
-#define FUNC_END_DEBUG_MSG   ::ghex::recv_deb.debug(hpx::debug::str<>("### Exit ") , __func__);
+#define FUNC_START_DEBUG_MSG ::ghex::recv_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
+#define FUNC_END_DEBUG_MSG   ::ghex::recv_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace ghex {
@@ -45,7 +45,7 @@ namespace libfabric
             // create an rma_receivers per receive and push it onto the rma stack
             create_rma_receiver(true);
             // Once constructed, we need to post the receive...
-            pre_post_receive();
+            pre_post_receive(uint64_t(-1));
         }
 
         // --------------------------------------------------------------------
@@ -87,7 +87,9 @@ namespace libfabric
         // --------------------------------------------------------------------
         // A new connection only contains a locality address of the sender
         // so it can be handled directly without creating an rma_receiver
-        // just get the address and add it to the parclport address_vector
+        // just get the address and add it to the address_vector
+        //
+        // This function is only called when lifabric is used for bootstrapping
         bool receiver::handle_new_connection(controller *controller, std::uint64_t len)
         {
             FUNC_START_DEBUG_MSG;
@@ -99,8 +101,7 @@ namespace libfabric
             // so that we can post a recv again as soon as possible.
             region_type* region = header_region_;
             header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            pre_post_receive();
-
+            pre_post_receive(uint64_t(-1));
 
             recv_deb.trace(hpx::debug::str<>("header")
                 ,  hpx::debug::mem_crc32(region->get_address()
@@ -155,7 +156,9 @@ namespace libfabric
             };
 
             // Put a new rma_receiver on the stack
-            rma_receiver *recv = new rma_receiver(/*parcelport_, */endpoint_, memory_pool_, std::move(f));
+            rma_receiver *recv = new rma_receiver(endpoint_,
+                                                  memory_pool_,
+                                                  std::move(f));
             ++active_rma_receivers_;
             recv_deb.debug(hpx::debug::str<>("rma_receiver")
                 , "Create new"
@@ -198,7 +201,6 @@ namespace libfabric
             return recv;
         }
 
-
         // --------------------------------------------------------------------
         // A received message is routed by the controller into this function.
         // it might be an incoming message or just an ack sent to inform that
@@ -212,7 +214,7 @@ namespace libfabric
             recv_deb.debug(hpx::debug::str<>("handling recv")
                 , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
 
-            // If we receive a message of 8 bytes, we got a tag and need to handle
+            // If we receive a message of 8 bytes, we got a ack and need to handle
             // the tag completion...
             if (len <= sizeof(std::uint64_t))
             {
@@ -220,7 +222,7 @@ namespace libfabric
                 // Get the sender that has completed rma operations and signal to it
                 // that it can now cleanup - all remote get operations are done.
                 sender* snd = *reinterpret_cast<sender **>(header_region_->get_address());
-                pre_post_receive();
+                pre_post_receive(uint64_t(-1));
                 recv_deb.debug(hpx::debug::str<>("RMA ack")
                     , hpx::debug::ptr(snd));
                 ++acks_received_;
@@ -229,12 +231,13 @@ namespace libfabric
             }
 
             rma_receiver* recv = get_rma_receiver(src_addr);
+            recv->user_recv_cb_ = user_recv_cb_;
 
             // We save the received region and swap it with a newly allocated one
             // so that we can post a recv again as soon as possible.
             region_type* region = header_region_;
             header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            pre_post_receive();
+            pre_post_receive(uint64_t(-1));
 
             // we dispatch our work to our rma_receiver once it completed the
             // prior message. The saved region is passed to the rma handler
@@ -248,25 +251,34 @@ namespace libfabric
         // the receiver posts a single receive buffer to the queue, attaching
         // itself as the context, so that when a message is received
         // the owning receiver is called to handle processing of the buffer
-        void receiver::pre_post_receive()
+        void receiver::pre_post_receive(uint64_t tag)
         {
             FUNC_START_DEBUG_MSG;
             void *desc = header_region_->get_local_key();
             recv_deb.debug(hpx::debug::str<>("Pre-Posting")
                 , *header_region_
                 , "context " , hpx::debug::ptr(this)
+                , "tag", hpx::debug::dec<>(tag)
                 , "pre-posted " , hpx::debug::dec<>(++receives_pre_posted_));
 
             // this should never actually return true and yield
             bool ok = false;
             while(!ok) {
+                ssize_t ret;
                 // post a receive using 'this' as the context, so that this
                 // receiver object can be used to handle the incoming
                 // receive/request
-                ssize_t ret = fi_recv(this->endpoint_,
-                    this->header_region_->get_address(),
-                    this->header_region_->get_size(), desc, 0, this);
-
+                if (tag==uint64_t(-1)) {
+                    ret = fi_recv(this->endpoint_,
+                        this->header_region_->get_address(),
+                        this->header_region_->get_size(), desc, 0, this);
+                }
+                else {
+                    uint64_t ignore = 0;
+                    ret = fi_trecv(this->endpoint_,
+                        this->header_region_->get_address(),
+                        this->header_region_->get_size(), desc, src_addr_, tag, ignore, this);
+                }
                 if (ret ==0) {
                     ok = true;
                 }

@@ -32,6 +32,7 @@ namespace gridtools{
                 :   m_data(std::move(data))
                 ,   m_handle(std::move(h))
                 {}
+
                 future_t(const future_t&) = delete;
                 future_t(future_t&&) = default;
                 future_t& operator=(const future_t&) = delete;
@@ -64,19 +65,8 @@ namespace gridtools{
                   * @return True if the request was successfully canceled */
                 bool cancel()
                 {
-/*
-                    // we can  only cancel recv requests...
-                    if  (is_recv()) {
-                        GHEX_CHECK_MPI_RESULT(MPI_Cancel(&m_handle.get()));
-                        MPI_Status st;
-                        GHEX_CHECK_MPI_RESULT(MPI_Wait(&m_handle.get(), &st));
-                        int flag = false;
-                        GHEX_CHECK_MPI_RESULT(MPI_Test_cancelled(&st, &flag));
-                        return flag;
-                    }
-                    else
-*/
-                        return false;
+                    // @TODO not yet implemented
+                    return false;
                 }
             };
 

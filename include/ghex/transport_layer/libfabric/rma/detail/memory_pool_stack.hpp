@@ -33,8 +33,8 @@ namespace ghex {
 
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ghex::mps_deb.debug(hpx::debug::str<>("*** Enter ") , __func__);
-#define FUNC_END_DEBUG_MSG   ghex::mps_deb.debug(hpx::debug::str<>("### Exit  ") , __func__);
+#define FUNC_START_DEBUG_MSG ghex::mps_deb.debug(hpx::debug::str<>("*** Enter ") , __func__)
+#define FUNC_END_DEBUG_MSG   ghex::mps_deb.debug(hpx::debug::str<>("### Exit  ") , __func__)
 }
 
 

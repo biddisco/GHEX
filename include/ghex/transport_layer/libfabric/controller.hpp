@@ -25,6 +25,7 @@
 #include <rdma/fi_eq.h>
 #include <rdma/fi_errno.h>
 #include <rdma/fi_rma.h>
+#include <rdma/fi_tagged.h>
 #include "fabric_error.hpp"
 //
 #include <ghex/transport_layer/libfabric/print.hpp>
@@ -79,8 +80,8 @@ namespace ghex {
 
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ghex::cnt_deb.debug(hpx::debug::str<>("*** Enter ") , __func__);
-#define FUNC_END_DEBUG_MSG   ghex::cnt_deb.debug(hpx::debug::str<>("### Exit  ") , __func__);
+#define FUNC_START_DEBUG_MSG ghex::cnt_deb.debug(hpx::debug::str<>("*** Enter ") , __func__)
+#define FUNC_END_DEBUG_MSG   ghex::cnt_deb.debug(hpx::debug::str<>("### Exit  ") , __func__)
 }
 
 namespace ghex {
@@ -122,6 +123,16 @@ namespace libfabric
         sender_list senders_;
         std::atomic<unsigned int> senders_in_use_;
 
+        // We must maintain a list of receivers that are being used
+        using receiver_list =
+            boost::lockfree::stack<
+                receiver*,
+                boost::lockfree::capacity<GHEX_LIBFABRIC_MAX_SENDS>,
+                boost::lockfree::fixed_sized<true>
+            >;
+        receiver_list tagged_receivers_;
+        std::atomic<unsigned int> tagged_receivers_in_use_;
+
         int      m_rank_;
         int      m_size_;
         MPI_Comm m_comm_;
@@ -130,6 +141,21 @@ namespace libfabric
         locality root_;
 
         std::size_t get_num_localities() { return m_size_; }
+
+        // store info about local device
+        std::string  device_;
+        std::string  interface_;
+        sockaddr_in  local_addr_;
+
+        // Pinned memory pool used for allocating buffers
+        std::unique_ptr<rma::memory_pool<libfabric_region_provider>> memory_pool_;
+
+        // Shared completion queue for all endoints
+        // Count outstanding receives posted to SRQ + Completion queue
+        std::vector<receiver> untagged_receivers_;
+
+        // only allow one thread to handle connect/disconnect events etc
+        mutex_type            initialization_mutex_;
 
         // --------------------------------------------------------------------
         // constructor gets info from device and sets up all necessary
@@ -155,7 +181,6 @@ namespace libfabric
           , m_rank_(rank)
           , m_size_(size)
           , m_comm_(mpi_comm)
-
         {
             std::cout.setf(std::ios::unitbuf);
             FUNC_START_DEBUG_MSG;
@@ -196,6 +221,7 @@ namespace libfabric
         // clean up all resources
         ~controller()
         {
+            FUNC_START_DEBUG_MSG;
             unsigned int messages_handled_ = 0;
             unsigned int acks_received_    = 0;
             unsigned int msg_plain_        = 0;
@@ -204,7 +230,7 @@ namespace libfabric
             unsigned int rma_reads_        = 0;
             unsigned int recv_deletes_     = 0;
             //
-            for (auto &r : receivers_) {
+            for (auto &r : untagged_receivers_) {
                 r.cleanup();
                 // from receiver
                 messages_handled_ += r.messages_handled_;
@@ -231,7 +257,7 @@ namespace libfabric
                 , "deletes error "     , hpx::debug::dec<>(messages_handled_ - recv_deletes_));
 
             // Cleaning up receivers to avoid memory leak errors.
-            receivers_.clear();
+            untagged_receivers_.clear();
 
             cnt_deb.debug(hpx::debug::str<>("closing"), "fabric");
             if (fabric_)
@@ -253,6 +279,7 @@ namespace libfabric
             // clean up
             cnt_deb.debug(hpx::debug::str<>("freeing fabric_info"));
             fi_freeinfo(fabric_info_);
+            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -477,10 +504,10 @@ namespace libfabric
 
             // filling our vector of receivers...
             std::size_t num_receivers = GHEX_LIBFABRIC_MAX_PREPOSTS;
-            receivers_.reserve(num_receivers);
+            untagged_receivers_.reserve(num_receivers);
             for(std::size_t i = 0; i != num_receivers; ++i)
             {
-                receivers_.emplace_back(ep_active_, *memory_pool_);
+                untagged_receivers_.emplace_back(ep_active_, *memory_pool_);
             }
 
 
@@ -493,42 +520,41 @@ namespace libfabric
                         memory_pool_.get());
                 // after a sender has been used, it's postprocess handler
                 // is called, this returns it to the free list
-                snd->postprocess_handler_ = [this](sender* s)
-                    {
-                        --senders_in_use_;
-                        cnt_deb.debug(hpx::debug::str<>("senders in use")
-                                      , "(-- stack sender)"
-                                      , hpx::debug::ptr(s)
-                                      , hpx::debug::dec<>(senders_in_use_));
-                        senders_.push(s);
-//                        trigger_pending_work();
-                    };
+//                snd->postprocess_handler_ = [this](sender* s)
+//                    {
+//                        --senders_in_use_;
+//                        cnt_deb.debug(hpx::debug::str<>("senders in use")
+//                                      , "(-- stack sender)"
+//                                      , hpx::debug::ptr(s)
+//                                      , hpx::debug::dec<>(senders_in_use_));
+//                        senders_.push(s);
+//                        // trigger_pending_work();
+//                    };
                 // put the new sender on the free list
                 senders_.push(snd);
             }
 
-            FUNC_END_DEBUG_MSG;
-        }
-
-        // --------------------------------------------------------------------
-        // return a sender object
-        // --------------------------------------------------------------------
-        sender* get_sender(libfabric::locality const& dest)
-        {
-            sender* snd = nullptr;
-            if (senders_.pop(snd))
+            for (std::size_t i = 0; i < GHEX_LIBFABRIC_MAX_SENDS; ++i)
             {
-                snd->dst_addr_ = dest.fi_address();
-                ++senders_in_use_;
-                cnt_deb.debug(hpx::debug::str<>("get_sender")
-                    , hpx::debug::ptr(snd)
-                    , "get address from", iplocality(here_)
-                    , "to" , iplocality(dest)
-                    , "fi_addr (rank)" , hpx::debug::hex<4>(snd->dst_addr_)
-                    , "senders in use (++ get_sender)"
-                    , hpx::debug::dec<>(senders_in_use_));
+                receiver *rcv=
+                   new receiver(ep_active_, *memory_pool_);
+                // after a receiver has been used, it's postprocess handler
+                // is called, this returns it to the free list
+//                rcv->postprocess_handler_ = [this](receiver* s)
+//                    {
+//                        --tagged_receivers_in_use_;
+//                        cnt_deb.debug(hpx::debug::str<>("receivers in use")
+//                                      , "(-- stack receiver)"
+//                                      , hpx::debug::ptr(s)
+//                                      , hpx::debug::dec<>(tagged_receivers_in_use_));
+//                        tagged_receivers_.push(s);
+//                        // trigger_pending_work();
+//                    };
+                // put the new sender on the free list
+                tagged_receivers_.push(rcv);
             }
-            return snd;
+
+            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -549,13 +575,41 @@ namespace libfabric
                 ++senders_in_use_;
                 cnt_deb.debug(hpx::debug::str<>("get_sender")
                     , hpx::debug::ptr(snd)
-                    , "get address from", iplocality(here_)
+                    , "from", iplocality(here_)
                     , "to" , iplocality(dest)
                     , "fi_addr (rank)" , hpx::debug::hex<4>(snd->dst_addr_)
                     , "senders in use (++ get_sender)"
                     , hpx::debug::dec<>(senders_in_use_));
             }
             return snd;
+        }
+
+        // --------------------------------------------------------------------
+        // return a receiver object
+        // --------------------------------------------------------------------
+        receiver* get_tagged_receiver(int src_rank, std::function<void(void)> cb_fn)
+        {
+            receiver* rcv = nullptr;
+            if (tagged_receivers_.pop(rcv))
+            {
+                // @TODO - fix this to only use rank = fi_addr_t(dest_rank)
+                libfabric::locality src;
+                std::size_t addrlen = libfabric::locality_defs::array_size;
+                int ret = fi_av_lookup(av_, fi_addr_t(src_rank),
+                                       src.fabric_data_writable(), &addrlen);
+
+                rcv->src_addr_     = src.fi_address();
+                rcv->user_recv_cb_ = std::move(cb_fn);
+                ++tagged_receivers_in_use_;
+                cnt_deb.debug(hpx::debug::str<>("get_tagged_receiver")
+                    , hpx::debug::ptr(rcv)
+                    , "here", iplocality(here_)
+                    , "src" , iplocality(src)
+                    , "fi_addr (rank)" , hpx::debug::hex<4>(rcv->src_addr_)
+                    , "receivers in use (++ get_tagged_receiver)"
+                    , hpx::debug::dec<>(tagged_receivers_in_use_));
+            }
+            return rcv;
         }
 
         // --------------------------------------------------------------------
@@ -782,27 +836,12 @@ namespace libfabric
         }
 
         // --------------------------------------------------------------------
-        // This is the main polling function that checks for work completions
-        // and connection manager events, if stopped is true, then completions
-        // are thrown away, otherwise the completion callback is triggered
-        unsigned int poll_endpoints(bool /*stopped*/=false)
+        gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
         {
-            unsigned int work = poll_for_work_completions();
-
-#ifdef GHEX_LIBFABRIC_ENDPOINT_MSG
-            work += poll_event_queue(stopped);
-#endif
-            return work;
-        }
-
-        // --------------------------------------------------------------------
-        unsigned int poll_for_work_completions()
-        {
-            // @TODO, disable polling until queues are initialized to avoid this check
-            // if queues are not setup, don't poll
-            if (HPX_UNLIKELY(!rxcq_)) return 0;
-            //
-            return poll_send_queue() + poll_recv_queue();
+            return gridtools::ghex::tl::cb::progress_status{
+                        poll_send_queue(),
+                        poll_recv_queue(),
+                        0};
         }
 
         // --------------------------------------------------------------------
@@ -831,6 +870,12 @@ namespace libfabric
                 else if (entry.flags == (FI_MSG | FI_SEND)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq MSG send completion");
+                    sender* handler = reinterpret_cast<sender*>(entry.op_context);
+                    handler->handle_send_completion();
+                }
+                else if (entry.flags == (FI_TAGGED | FI_MSG | FI_SEND)) {
+                    cnt_deb.debug(hpx::debug::str<>("Completion")
+                        , "txcq MSG tagged send completion");
                     sender* handler = reinterpret_cast<sender*>(entry.op_context);
                     handler->handle_send_completion();
                 }
@@ -923,6 +968,13 @@ namespace libfabric
                 else if (entry.flags == (FI_MSG | FI_RECV)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "rxcq recv completion "
+                        , hpx::debug::ptr(entry.op_context));
+                    reinterpret_cast<receiver *>(entry.op_context)->
+                        handle_recv(src_addr, entry.len);
+                }
+                else if (entry.flags == (FI_TAGGED | FI_MSG | FI_RECV)) {
+                    cnt_deb.debug(hpx::debug::str<>("Completion")
+                        , "rxcq recv tagged completion "
                         , hpx::debug::ptr(entry.op_context));
                     reinterpret_cast<receiver *>(entry.op_context)->
                         handle_recv(src_addr, entry.len);
@@ -1075,22 +1127,6 @@ namespace libfabric
             FUNC_END_DEBUG_MSG;
             return new_locality;
         }
-
-    private:
-        // store info about local device
-        std::string  device_;
-        std::string  interface_;
-        sockaddr_in  local_addr_;
-
-        // Pinned memory pool used for allocating buffers
-        std::unique_ptr<rma::memory_pool<libfabric_region_provider>> memory_pool_;
-
-        // Shared completion queue for all endoints
-        // Count outstanding receives posted to SRQ + Completion queue
-        std::vector<receiver> receivers_;
-
-        // only allow one thread to handle connect/disconnect events etc
-        mutex_type            initialization_mutex_;
     };
 
 }}}

@@ -25,8 +25,8 @@ namespace ghex {
 
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::com_deb.debug(hpx::debug::str<>("*** Enter") , __func__);
-#define FUNC_END_DEBUG_MSG   ::ghex::com_deb.debug(hpx::debug::str<>("### Exit ") , __func__);
+#define FUNC_START_DEBUG_MSG ::ghex::com_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
+#define FUNC_END_DEBUG_MSG   ::ghex::com_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace gridtools {
@@ -46,13 +46,13 @@ namespace gridtools {
                     using transport_context_type = transport_context<libfabric_tag, ThreadPrimitives>;
                     using rank_type = int;
                     using tag_type = int;
-                    using controller_type = std::shared_ptr<::ghex::tl::libfabric::controller>;
+                    using controller_shared = std::shared_ptr<::ghex::tl::libfabric::controller>;
 
-                    controller_type m_controller;
+                    controller_shared m_controller;
                     transport_context_type* m_context;
                     thread_primitives_type* m_thread_primitives;
 
-                    shared_communicator_state(controller_type control, transport_context_type* tc, thread_primitives_type* tp)
+                    shared_communicator_state(controller_shared control, transport_context_type* tc, thread_primitives_type* tp)
                     : m_controller{control}
                     , m_context{tc}
                     , m_thread_primitives{tp}
@@ -75,7 +75,7 @@ namespace gridtools {
                     using future = future_t<T>;
                     using queue_type = ::gridtools::ghex::tl::cb::callback_queue<future<void>, rank_type, tag_type>;
                     using progress_status = gridtools::ghex::tl::cb::progress_status;
-                    using controller_type = std::shared_ptr<::ghex::tl::libfabric::controller>;
+                    using controller_shared = std::shared_ptr<::ghex::tl::libfabric::controller>;
 
                     thread_token* m_token_ptr;
                     queue_type m_send_queue;
@@ -194,18 +194,17 @@ namespace gridtools {
                      * @return a future to test/wait for completion */
                     template<typename Message>
                     [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag) {
-                        request req;
-                        FUNC_START_DEBUG_MSG
+                        FUNC_START_DEBUG_MSG;
                         ::ghex::tl::libfabric::sender *sndr = m_shared_state->m_controller->get_sender(dst);
-
-                        sndr->async_send(msg, tag);
-
-/*
-                        GHEX_CHECK_MPI_RESULT(MPI_Isend(reinterpret_cast<const void*>(msg.data()),
-                                                        sizeof(typename Message::value_type) * msg.size(), MPI_BYTE,
-                                                        dst, tag, m_shared_state->m_comm, &req.get()));
-                        req.m_kind = request_kind::send;
-*/
+                        // create a request
+                        std::unique_ptr<bool> result(new bool(false));
+                        request req{m_shared_state->m_controller.get(), request_kind::recv, std::move(result)};
+                        // setup a callback to set the future ready when transfer is complete
+                        sndr->async_send(msg, tag, [p=req.m_ready.get()](){
+                            *p = true;
+                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future set");
+                        });
+                        FUNC_END_DEBUG_MSG;
                         return req;
                     }
 
@@ -217,17 +216,29 @@ namespace gridtools {
                      * @param tag the communication tag
                      * @return a future to test/wait for completion */
                     template<typename Message>
-                    [[nodiscard]] future<void> recv(Message& msg, rank_type src, tag_type tag) {
-                        request req;
-                        FUNC_START_DEBUG_MSG
+                    [[nodiscard]] future<void> recv(Message& msg, rank_type dest, tag_type tag)
+                    {
+                        FUNC_START_DEBUG_MSG;
+                        // main libfabric controller
+                        auto controller = m_shared_state->m_controller;
 
-//                        m_shared_state->m_controller->
-/*
-                        GHEX_CHECK_MPI_RESULT(MPI_Irecv(reinterpret_cast<void*>(msg.data()),
-                                                        sizeof(typename Message::value_type) * msg.size(), MPI_BYTE,
-                                                        src, tag, m_shared_state->m_comm, &req.get()));
-                        req.m_kind = request_kind::recv;
-*/
+                        // setup a request that is held by the future, the bool 'ready'
+                        // flag has to be a pointer because the future will
+                        // be moved and a reference will go out of scope
+                        std::unique_ptr<bool> result(new bool(false));
+                        request req{controller.get(), request_kind::recv, std::move(result)};
+
+                        // setup a callback that will set the future ready
+                        std::function<void(void)> set_fut_fn = [p=req.m_ready.get()](){
+                            *p = true;
+                            ::ghex::com_deb.debug(hpx::debug::str<>("Receive"), "Future set");
+                        };
+
+                        // get a receiver object (tagged, with a callback)
+                        ::ghex::tl::libfabric::receiver *rcv =
+                                controller->get_tagged_receiver(dest, set_fut_fn);
+                        rcv->pre_post_receive(/*msg, */tag);
+                        FUNC_END_DEBUG_MSG;
                         return req;
                     }
 
@@ -236,12 +247,7 @@ namespace gridtools {
                       * with the message, rank and tag associated with this communication.
                       * @return non-zero if any communication was progressed, zero otherwise. */
                     progress_status progress() {
-                        auto n = m_shared_state->m_controller->poll_for_work_completions();
-//                        m_num_sends += other.m_num_sends;
-//                        m_num_recvs += other.m_num_recvs;
-//                        m_num_cancels += other.m_num_cancels;
-                        progress_status temp{0,0,0};
-                        return temp;
+                        return m_shared_state->m_controller->poll_for_work_completions();
                     }
 
                    /** @brief send a message and get notified with a callback when the communication has finished.
@@ -301,16 +307,14 @@ namespace gridtools {
                     }
 
                     void barrier() {
-/*
                         if (auto token_ptr = m_state->m_token_ptr) {
                             auto& tp = *(m_shared_state->m_thread_primitives);
                             auto& token = *token_ptr;
-                            tp.single(token, [this]() { MPI_Barrier(m_shared_state->m_comm); } );
+                            tp.single(token, [this]() { MPI_Barrier(m_shared_state->m_controller->m_comm_); } );
                             progress(); // progress once more to set progress counters to zero
                             tp.barrier(token);
                         }
                         else
-*/
                             MPI_Barrier(m_shared_state->m_controller->m_comm_);
                     }
                 };

@@ -81,13 +81,18 @@ namespace libfabric
         // the receiver posts a single receive buffer to the queue, attaching
         // itself as the context, so that when a message is received
         // the owning receiver is called to handle processing of the buffer
-        void pre_post_receive();
+        void pre_post_receive(uint64_t tag);
 
     private:
         fid_ep                            *endpoint_;
         region_type                       *header_region_ ;
         rma::memory_pool<region_provider> *memory_pool_;
         //
+        // only used for tagged receivers
+        fi_addr_t                         src_addr_;
+        std::function<void(receiver*)>    postprocess_handler_;
+        std::function<void(void)>         user_recv_cb_ ;
+
         friend class controller;
 
         // shared performance counters used by all receivers

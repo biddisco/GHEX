@@ -29,8 +29,8 @@ namespace ghex {
     static hpx::debug::enable_print<true> send_deb("SENDER ");
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::send_deb.debug(hpx::debug::str<>("*** Enter") , __func__);
-#define FUNC_END_DEBUG_MSG   ::ghex::send_deb.debug(hpx::debug::str<>("### Exit ") , __func__);
+#define FUNC_START_DEBUG_MSG ::ghex::send_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
+#define FUNC_END_DEBUG_MSG   ::ghex::send_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace ghex {
@@ -73,12 +73,16 @@ namespace libfabric
           , sends_posted_(0)
           , sends_deleted_(0)
           , acks_received_(0)
+          , send_tag_(uint64_t(-1))
         {
             // the header region is reused multiple times
             header_region_ =
                 memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
             send_deb.debug(hpx::debug::str<>("Create sender")
                 , hpx::debug::ptr(this));
+//            user_handler_           = [](){};
+//            postprocess_handler_    = [](sender*){};
+//            handler_                = [](int const &){};
         }
 
         // --------------------------------------------------------------------
@@ -100,14 +104,19 @@ namespace libfabric
         // The main message send routine : package the header, send it
         // with an optional extra message region if it cannot be piggybacked
         // send chunk/rma information for all zero copy serialization regions
-        void async_send(const gridtools::ghex::tl::cb::any_message& msg, int tag)
+        void async_send(const gridtools::ghex::tl::cb::any_message& msg,
+                        uint64_t tag,
+                        std::function<void(void)> cb_fn)
         {
-            FUNC_START_DEBUG_MSG
+            FUNC_START_DEBUG_MSG;
             HPX_ASSERT(message_region_ == nullptr);
             HPX_ASSERT(completion_count_ == 0);
+
             // increment counter of total messages sent
             ++sends_posted_;
-            int rma_chunks = 0;
+            int rma_chunks      = 0;
+            send_tag_           = tag;
+            user_send_cb_       = cb_fn;
 
             message_region_ = dynamic_cast<region_type*>(
                     memory_pool_->region_from_address(msg.data()));
@@ -174,11 +183,6 @@ namespace libfabric
                     , "addr "   , hpx::debug::ptr(cb.data_.cpos_));
             }
 
-//            if ((flags & header_type::bootstrap_flag) != 0)
-//            {
-//                header_->set_bootstrap_flag();
-//            }
-
             if (header_->message_piggy_back())
             {
                 send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
@@ -200,14 +204,21 @@ namespace libfabric
                     HPX_ASSERT(
                         (this->region_list_[0].iov_len + this->region_list_[1].iov_len) <=
                             GHEX_LIBFABRIC_MESSAGE_HEADER_SIZE);
-                    ssize_t ret = fi_sendv(this->endpoint_, this->region_list_,
-                        this->desc_, 2, this->dst_addr_, this);
+                    ssize_t ret;
+                    if (send_tag_==-1) {
+                        ret = fi_sendv(this->endpoint_, this->region_list_,
+                            this->desc_, 2, this->dst_addr_, this);
+                    }
+                    else {
+                        ret = fi_tsendv(this->endpoint_, this->region_list_,
+                            this->desc_, 2, this->dst_addr_, send_tag_, this);
+                    }
 
                     if (ret == 0) {
                         ok = true;
                     }
                     else if (ret == -FI_EAGAIN) {
-                        send_deb.error("Reposting fi_sendv...");
+                        send_deb.error("Reposting fi_sendv / fi_tsendv");
 //                        controller_->background_work(0, controller_background_mode_all);
                     }
                     else if (ret == -FI_ENOENT) {
@@ -217,7 +228,7 @@ namespace libfabric
                     }
                     else if (ret)
                     {
-                        throw fabric_error(int(ret), "fi_sendv");
+                        throw fabric_error(int(ret), "fi_sendv / fi_tsendv");
                     }
                 }
             }
@@ -243,22 +254,31 @@ namespace libfabric
 
                 bool ok = false;
                 while (!ok) {
-                    ssize_t ret = fi_send(this->endpoint_,
-                        this->region_list_[0].iov_base,
-                        this->region_list_[0].iov_len,
-                        this->desc_[0], this->dst_addr_, this);
+                    ssize_t ret;
+                    if (send_tag_==-1) {
+                        ret = fi_send(this->endpoint_,
+                                      this->region_list_[0].iov_base,
+                                      this->region_list_[0].iov_len,
+                                      this->desc_[0], this->dst_addr_, this);
+                    }
+                    else {
+                        ret = fi_tsend(this->endpoint_,
+                                       this->region_list_[0].iov_base,
+                                       this->region_list_[0].iov_len,
+                                       this->desc_[0], this->dst_addr_, send_tag_, this);
+                    }
 
                     if (ret == 0) {
                         ok = true;
                     }
                     else if (ret == -FI_EAGAIN)
                     {
-                        send_deb.error("reposting fi_send");
+                        send_deb.error("reposting fi_send / fi_tsend");
 //                        controller_->background_work(0, controller_background_mode_all);
                     }
                     else if (ret)
                     {
-                        throw fabric_error(int(ret), "fi_send");
+                        throw fabric_error(int(ret), "fi_send / fi_tsend");
                     }
                 }
             }
@@ -305,8 +325,8 @@ namespace libfabric
             ++sends_deleted_;
 
             int ec;
-            handler_(ec);
-//            handler_.reset();
+            user_send_cb_();
+            user_send_cb_ = [](){};
 
             // cleanup header and message region
             memory_pool_->deallocate(message_region_);
@@ -324,7 +344,7 @@ namespace libfabric
             rma_regions_.clear();
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "calling postprocess_handler");
-            postprocess_handler_(this);
+            if (postprocess_handler_) postprocess_handler_(this);
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "completed cleanup/postprocess_handler");
         }
@@ -403,25 +423,26 @@ namespace libfabric
         }
 
         // --------------------------------------------------------------------
-        controller               *controller_;
-        fid_ep                   *endpoint_;
-        fid_domain               *domain_;
-        memory_pool_type         *memory_pool_;
-        fi_addr_t                 dst_addr_;
-        region_type              *header_region_;
-        region_type              *chunk_region_;
-        region_type              *message_region_;
-        header_type              *header_;
-        zero_copy_vector          rma_regions_;
-        hpx::util::atomic_count   completion_count_;
+        controller                  *controller_;
+        fid_ep                      *endpoint_;
+        fid_domain                  *domain_;
+        memory_pool_type            *memory_pool_;
+        fi_addr_t                    dst_addr_;
+        region_type                 *header_region_;
+        region_type                 *chunk_region_;
+        region_type                 *message_region_;
+        header_type                 *header_;
+        zero_copy_vector             rma_regions_;
+        hpx::util::atomic_count      completion_count_;
+        uint64_t                     send_tag_;
+        std::function<void(void)>    user_send_cb_;
+        std::function<void(sender*)> postprocess_handler_;
 
         // principally for debugging
         performance_counter<unsigned int> sends_posted_;
         performance_counter<unsigned int> sends_deleted_;
         performance_counter<unsigned int> acks_received_;
         //
-        std::function<void(int const&)> handler_;
-        std::function<void(sender*)>    postprocess_handler_;
         //
         struct iovec region_list_[2];
         void*        desc_[2];
