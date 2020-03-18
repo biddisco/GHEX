@@ -41,10 +41,6 @@ namespace libfabric
     typedef rma::detail::memory_region_impl<region_provider> region_type;
     typedef rma::memory_pool<region_provider>                memory_pool_type;
 
-    struct snd_data_type {
-        snd_data_type(memory_pool_type *memory_pool_) {}
-    };
-
     struct sender : public rma_base
     {
         typedef libfabric_region_provider                        region_provider;
@@ -255,7 +251,7 @@ namespace libfabric
                 bool ok = false;
                 while (!ok) {
                     ssize_t ret;
-                    if (send_tag_==-1) {
+                    if (send_tag_==uint64_t(-1)) {
                         ret = fi_send(this->endpoint_,
                                       this->region_list_[0].iov_base,
                                       this->region_list_[0].iov_len,
@@ -324,7 +320,6 @@ namespace libfabric
             // track deletions
             ++sends_deleted_;
 
-            int ec;
             user_send_cb_();
             user_send_cb_ = [](){};
 
@@ -351,7 +346,7 @@ namespace libfabric
 
         // --------------------------------------------------------------------
         // if a send completion reports failure, we can retry the send
-        void handle_error(struct fi_cq_err_entry err)
+        void handle_error(struct fi_cq_err_entry /*err*/)
         {
             send_deb.error(hpx::debug::str<>("resending"), hpx::debug::ptr(this));
 
