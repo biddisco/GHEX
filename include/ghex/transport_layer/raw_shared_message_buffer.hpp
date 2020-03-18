@@ -51,7 +51,7 @@ namespace gridtools {
 	      * Compared to the standard shared_message_buffer, here we do not use the shared_ptr, but instead we use
 	      * a raw C pointer to refcounted_message.
 	      */
-            template<typename Allocator = std::allocator<unsigned char>>
+            template<typename Allocator /*= std::allocator<unsigned char>*/>
             class shared_message_buffer
             {
             public: // member types

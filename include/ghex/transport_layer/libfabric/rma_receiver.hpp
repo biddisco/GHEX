@@ -510,7 +510,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         // convenience function to execute a read, given the right params
         void read_one_chunk(
-            fi_addr_t src_addr, region_type *get_region,
+            fi_addr_t /*src_addr*/, region_type *get_region,
             const void *remote_addr, uint64_t rkey)
         {
             FUNC_START_DEBUG_MSG;

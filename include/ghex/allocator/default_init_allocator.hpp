@@ -23,7 +23,7 @@ namespace gridtools {
              * into default initialization.
              * @tparam T type to allocate
              * @tparam A base allocator*/
-            template <typename T, typename A=std::allocator<T>>
+            template <typename T, typename A/*=std::allocator<T>*/>
             class default_init_allocator : public A 
             {
             private: // member types

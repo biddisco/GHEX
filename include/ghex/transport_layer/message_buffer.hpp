@@ -37,7 +37,7 @@ namespace gridtools {
               * size indicates the amnount bytes used in the message.
               *
               * @tparam Allocator The allocator used to allocate the memory for the message */
-            template<typename Allocator = std::allocator<unsigned char>>
+            template<typename Allocator /*= std::allocator<unsigned char>*/>
             class message_buffer
             {
             public: // member types
