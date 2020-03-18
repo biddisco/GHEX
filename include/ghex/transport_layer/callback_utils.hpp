@@ -109,7 +109,7 @@ namespace gridtools {
                       * @param m a message */
                     template<class Message>
                     any_message(Message&& m)
-                    : m_data{reinterpret_cast<unsigned char*>(const_cast<unsigned char*>(m.data()))}
+                    : m_data{reinterpret_cast<unsigned char*>(m.data())}
                     , m_size{m.size()*sizeof(typename Message::value_type)}
                     , m_ptr{std::make_unique<holder<Message>>(std::move(m))}
                     {}
