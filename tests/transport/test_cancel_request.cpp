@@ -32,7 +32,7 @@ const unsigned int SIZE = 1<<12;
 template<typename Comm>
 bool test_simple(Comm& comm, int rank) {
 
-    using allocator_type = std::allocator<unsigned char>;
+    using allocator_type = Comm::allocator_type<unsigned char>;
     using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
     using comm_type      = std::remove_reference_t<decltype(comm)>;
 
@@ -54,7 +54,7 @@ bool test_simple(Comm& comm, int rank) {
         MPI_Barrier(comm);
         return ok;
     } else {
-        gridtools::ghex::tl::message_buffer<> rmsg{SIZE};
+        gridtools::ghex::tl::message_buffer<allocator_type> rmsg{SIZE};
         auto fut = comm.recv(rmsg, 0, 42); // ~wrong tag to then cancel the calls
 
         bool ok = fut.cancel();

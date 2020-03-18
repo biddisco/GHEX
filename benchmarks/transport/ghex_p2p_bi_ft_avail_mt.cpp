@@ -39,8 +39,8 @@ using transport    = ghex::tl::mpi_tag;
 using context_type = ghex::tl::context<transport, threading>;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::future<void>;
-
-using MsgType = gridtools::ghex::tl::message_buffer<>;
+using allocator_type = communicator_type::allocator_type;
+using MsgType = gridtools::ghex::tl::message_buffer<allocator_type>;
 
 
 #ifdef USE_OPENMP

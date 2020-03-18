@@ -85,10 +85,12 @@ TEST(transport, ring_send_recv_ft)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
     test_ring_send_recv_ft< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_ft< message_factory<msg_type> >(comm, sizeof(int));
 }
 
@@ -146,10 +148,12 @@ TEST(transport, ring_send_recv_cb)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
     test_ring_send_recv_cb< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb< message_factory<msg_type> >(comm, sizeof(int));
 }
 
@@ -201,10 +205,12 @@ TEST(transport, ring_send_recv_cb_disown)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
     test_ring_send_recv_cb_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb_disown< message_factory<msg_type> >(comm, sizeof(int));
 }
 
@@ -281,10 +287,12 @@ TEST(transport, ring_send_recv_cb_resubmit)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
     test_ring_send_recv_cb_resubmit< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb_resubmit< message_factory<msg_type> >(comm, sizeof(int));
 }
 
@@ -340,10 +348,12 @@ TEST(transport, ring_send_recv_cb_resubmit_disown)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
     test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int));
 }
 
