@@ -209,11 +209,11 @@ namespace detail
         // for debug log messages
         std::string status() {
             std::stringstream temp;
-            temp, "| ", PoolType::desc()
-                , "ChunkSize ", hpx::debug::hex<6>(ChunkSize)
-                , "Free ", hpx::debug::dec<>(MaxChunks-in_use_)
-                , "Used ", hpx::debug::dec<>(in_use_)
-                , "Accesses ", hpx::debug::dec<>(accesses_);
+            temp << "| " << PoolType::desc()
+                 << "ChunkSize " << hpx::debug::hex<6>(ChunkSize)
+                 << "Free " << hpx::debug::dec<>(MaxChunks-in_use_)
+                 << "Used " << hpx::debug::dec<>(in_use_)
+                 << "Accesses " << hpx::debug::dec<>(accesses_);
             return temp.str();
         }
 

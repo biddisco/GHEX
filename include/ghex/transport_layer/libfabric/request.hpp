@@ -31,7 +31,7 @@ namespace gridtools{
                 using controller_type = ::ghex::tl::libfabric::controller;
                 controller_type *m_controller = nullptr;
                 request_kind m_kind           = request_kind::none;
-                std::unique_ptr<bool> m_ready = nullptr;
+                std::shared_ptr<bool> m_ready = nullptr;
 
                 request_t() noexcept = default;
 
@@ -58,6 +58,7 @@ namespace gridtools{
                 bool cancel()
                 {
                     // @TODO not yet implemented
+                    return false;
                 }
 
             };

@@ -46,13 +46,13 @@ namespace gridtools {
                     using transport_context_type = transport_context<libfabric_tag, ThreadPrimitives>;
                     using rank_type = int;
                     using tag_type = int;
-                    using controller_shared = std::shared_ptr<::ghex::tl::libfabric::controller>;
+                    using controller_type = ::ghex::tl::libfabric::controller;
 
-                    controller_shared m_controller;
-                    transport_context_type* m_context;
-                    thread_primitives_type* m_thread_primitives;
+                    controller_type        *m_controller;
+                    transport_context_type *m_context;
+                    thread_primitives_type *m_thread_primitives;
 
-                    shared_communicator_state(controller_shared control, transport_context_type* tc, thread_primitives_type* tp)
+                    shared_communicator_state(controller_type *control, transport_context_type* tc, thread_primitives_type* tp)
                     : m_controller{control}
                     , m_context{tc}
                     , m_thread_primitives{tp}
@@ -195,12 +195,16 @@ namespace gridtools {
                     template<typename Message>
                     [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag) {
                         FUNC_START_DEBUG_MSG;
+                        // main libfabric controller
+                        auto controller = m_shared_state->m_controller;
+
                         ::ghex::tl::libfabric::sender *sndr = m_shared_state->m_controller->get_sender(dst);
                         // create a request
-                        std::unique_ptr<bool> result(new bool(false));
-                        request req{m_shared_state->m_controller.get(), request_kind::recv, std::move(result)};
+                        std::shared_ptr<bool> result(new bool(false));
+                        request req{controller, request_kind::recv, std::move(result)};
                         // setup a callback to set the future ready when transfer is complete
-                        sndr->async_send(msg, tag, [p=req.m_ready.get()](){
+                        sndr->async_send(msg, tag, [p=req.m_ready](){
+                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future pre-set");
                             *p = true;
                             ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future set");
                         });
@@ -225,11 +229,12 @@ namespace gridtools {
                         // setup a request that is held by the future, the bool 'ready'
                         // flag has to be a pointer because the future will
                         // be moved and a reference will go out of scope
-                        std::unique_ptr<bool> result(new bool(false));
-                        request req{controller.get(), request_kind::recv, std::move(result)};
+                        std::shared_ptr<bool> result(new bool(false));
+                        request req{controller, request_kind::recv, std::move(result)};
 
                         // setup a callback that will set the future ready
-                        std::function<void(void)> set_fut_fn = [p=req.m_ready.get()](){
+                        std::function<void(void)> set_fut_fn = [p=req.m_ready](){
+                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future pre-set");
                             *p = true;
                             ::ghex::com_deb.debug(hpx::debug::str<>("Receive"), "Future set");
                         };

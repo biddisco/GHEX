@@ -70,10 +70,10 @@ namespace libfabric
           , message_region_(nullptr)
           , header_(nullptr)
           , completion_count_(0)
+          , send_tag_(uint64_t(-1))
           , sends_posted_(0)
           , sends_deleted_(0)
           , acks_received_(0)
-          , send_tag_(uint64_t(-1))
         {
             // the header region is reused multiple times
             header_region_ =
@@ -205,7 +205,7 @@ namespace libfabric
                         (this->region_list_[0].iov_len + this->region_list_[1].iov_len) <=
                             GHEX_LIBFABRIC_MESSAGE_HEADER_SIZE);
                     ssize_t ret;
-                    if (send_tag_==-1) {
+                    if (send_tag_==uint64_t(-1)) {
                         ret = fi_sendv(this->endpoint_, this->region_list_,
                             this->desc_, 2, this->dst_addr_, this);
                     }
