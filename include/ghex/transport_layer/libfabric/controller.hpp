@@ -26,9 +26,10 @@
 #include <rdma/fi_errno.h>
 #include <rdma/fi_rma.h>
 #include <rdma/fi_tagged.h>
-#include "fabric_error.hpp"
 //
+#include "ghex_libfabric_defines.hpp"
 #include <ghex/transport_layer/libfabric/print.hpp>
+#include <ghex/transport_layer/libfabric/fabric_error.hpp>
 #include <ghex/transport_layer/libfabric/locality.hpp>
 #include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
 #include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
@@ -89,8 +90,26 @@ namespace tl {
 namespace libfabric
 {
 
-//    template<typename Tag, typename ThreadPrimitives>
-//    struct transport_context;
+    //    template<typename Tag, typename ThreadPrimitives>
+    //    struct transport_context;
+
+    // struct returned from polling functions
+    // if any completions are handled (rma, send, recv),
+    // then the completions_handled field should be set to true.
+    // if Send/Receive completions that indicate the end of a message that
+    // should trigger a future or callback in user level code occur, then
+    // the user_msgs field should hold the count (1 per future/callback)
+    // A non zero user_msgs count implies completions_handled must be set
+    struct progress_count {
+        bool completions_handled = false;
+        std::uint32_t user_msgs = 0;
+        //
+        progress_count & operator +=(const progress_count & rhs) {
+            completions_handled |= rhs.completions_handled;
+            user_msgs += rhs.user_msgs;
+            return *this;
+        }
+    };
 
     class controller
     {
@@ -113,7 +132,7 @@ namespace libfabric
         bool                       immediate_;
         std::atomic<std::uint32_t> bootstrap_counter_;
 
-        // We must maintain a list of senders that are being used
+        // We maintain a list of senders that are being used
         using sender_list =
             boost::lockfree::stack<
                 sender*,
@@ -124,14 +143,14 @@ namespace libfabric
         std::atomic<unsigned int> senders_in_use_;
 
         // We must maintain a list of receivers that are being used
-        using receiver_list =
+        using expected_receiver_stack =
             boost::lockfree::stack<
                 receiver*,
-                boost::lockfree::capacity<GHEX_LIBFABRIC_MAX_SENDS>,
+                boost::lockfree::capacity<GHEX_LIBFABRIC_MAX_EXPECTED>,
                 boost::lockfree::fixed_sized<true>
             >;
-        receiver_list tagged_receivers_;
-        std::atomic<unsigned int> tagged_receivers_in_use_;
+        expected_receiver_stack expected_receivers_;
+        std::atomic<unsigned int> expected_receivers_in_use_;
 
         int      m_rank_;
         int      m_size_;
@@ -150,9 +169,11 @@ namespace libfabric
         // Pinned memory pool used for allocating buffers
         std::unique_ptr<rma::memory_pool<libfabric_region_provider>> memory_pool_;
 
-        // Shared completion queue for all endoints
-        // Count outstanding receives posted to SRQ + Completion queue
-        std::vector<receiver> untagged_receivers_;
+        // Receive buffers that do not have an associated tag,
+        // they are used to handle unexpected messages, they are always reposted
+        // as soon as they are handled and so can be stored in a vector as they
+        // only need to be referenced at create and destroy time
+        std::vector<receiver> unexpected_receivers_;
 
         // only allow one thread to handle connect/disconnect events etc
         mutex_type            initialization_mutex_;
@@ -229,8 +250,8 @@ namespace libfabric
             unsigned int sent_ack_         = 0;
             unsigned int rma_reads_        = 0;
             unsigned int recv_deletes_     = 0;
-            //
-            for (auto &r : untagged_receivers_) {
+
+            for (auto &r : unexpected_receivers_) {
                 r.cleanup();
                 // from receiver
                 messages_handled_ += r.messages_handled_;
@@ -245,19 +266,21 @@ namespace libfabric
                 sent_ack_     += rcv->sent_ack_;
                 rma_reads_    += rcv->rma_reads_;
                 recv_deletes_ += rcv->recv_deletes_;
+                cnt_deb.debug("Cleanup" , "rma_receivers"
+                              , hpx::debug::dec<>(--receiver::active_rma_receivers_));
                 delete rcv;
             }
 
             cnt_deb.debug(hpx::debug::str<>("counters")
-                , "Received messages"  , hpx::debug::dec<>(messages_handled_)
-                , "Received acks "     , hpx::debug::dec<>(acks_received_)
-                , "Sent acks "         , hpx::debug::dec<>(sent_ack_)
-                , "Total reads "       , hpx::debug::dec<>(rma_reads_)
-                , "Total deletes "     , hpx::debug::dec<>(recv_deletes_)
-                , "deletes error "     , hpx::debug::dec<>(messages_handled_ - recv_deletes_));
+                , "Received messages" , hpx::debug::dec<>(messages_handled_)
+                , "Received acks"     , hpx::debug::dec<>(acks_received_)
+                , "Sent acks"         , hpx::debug::dec<>(sent_ack_)
+                , "Total reads"       , hpx::debug::dec<>(rma_reads_)
+                , "Total deletes"     , hpx::debug::dec<>(recv_deletes_)
+                , "deletes error"     , hpx::debug::dec<>(messages_handled_ - recv_deletes_));
 
             // Cleaning up receivers to avoid memory leak errors.
-            untagged_receivers_.clear();
+            unexpected_receivers_.clear();
 
             cnt_deb.debug(hpx::debug::str<>("closing"), "fabric");
             if (fabric_)
@@ -503,13 +526,19 @@ namespace libfabric
 #endif
 
             // filling our vector of receivers...
-            std::size_t num_receivers = GHEX_LIBFABRIC_MAX_PREPOSTS;
-            untagged_receivers_.reserve(num_receivers);
+            std::size_t num_receivers = GHEX_LIBFABRIC_MAX_UNEXPECTED;
+            unexpected_receivers_.reserve(num_receivers);
             for(std::size_t i = 0; i != num_receivers; ++i)
             {
-                untagged_receivers_.emplace_back(ep_active_, *memory_pool_);
+                // after a receive buffer has been used, it's postprocess handler
+                // is called, unexpected receives are simply reposted
+                auto handler = [](receiver* rcv){
+                    rcv->pre_post_receive(uint64_t(-1));
+                };
+                //receiver *rcv = new receiver(ep_active_, *memory_pool_, handler, false, std::uint64_t(-1));
+                unexpected_receivers_.emplace_back(ep_active_, *memory_pool_,
+                    std::move(handler), true, std::uint64_t(-1));
             }
-
 
             for (std::size_t i = 0; i < GHEX_LIBFABRIC_MAX_SENDS; ++i)
             {
@@ -520,66 +549,91 @@ namespace libfabric
                         memory_pool_.get());
                 // after a sender has been used, it's postprocess handler
                 // is called, this returns it to the free list
-//                snd->postprocess_handler_ = [this](sender* s)
-//                    {
-//                        --senders_in_use_;
-//                        cnt_deb.debug(hpx::debug::str<>("senders in use")
-//                                      , "(-- stack sender)"
-//                                      , hpx::debug::ptr(s)
-//                                      , hpx::debug::dec<>(senders_in_use_));
-//                        senders_.push(s);
-//                        // trigger_pending_work();
-//                    };
+                snd->postprocess_handler_ = [this](sender* s)
+                    {
+                        --senders_in_use_;
+                        cnt_deb.debug(hpx::debug::str<>("senders in use")
+                                      , "(-- stack sender)"
+                                      , hpx::debug::ptr(s)
+                                      , hpx::debug::dec<>(senders_in_use_));
+                        senders_.push(s);
+                        // trigger_pending_work();
+                    };
                 // put the new sender on the free list
                 senders_.push(snd);
             }
 
-            for (std::size_t i = 0; i < GHEX_LIBFABRIC_MAX_SENDS; ++i)
+            for (std::size_t i = 0; i < GHEX_LIBFABRIC_MAX_EXPECTED; ++i)
             {
-                receiver *rcv=
-                   new receiver(ep_active_, *memory_pool_);
-                // after a receiver has been used, it's postprocess handler
-                // is called, this returns it to the free list
-//                rcv->postprocess_handler_ = [this](receiver* s)
-//                    {
-//                        --tagged_receivers_in_use_;
-//                        cnt_deb.debug(hpx::debug::str<>("receivers in use")
-//                                      , "(-- stack receiver)"
-//                                      , hpx::debug::ptr(s)
-//                                      , hpx::debug::dec<>(tagged_receivers_in_use_));
-//                        tagged_receivers_.push(s);
-//                        // trigger_pending_work();
-//                    };
-                // put the new sender on the free list
-                tagged_receivers_.push(rcv);
+                receiver *rcv = new_expected_receiver();
+                // put the new receiver on the free list
+                expected_receivers_.push(rcv);
             }
 
             FUNC_END_DEBUG_MSG;
         }
 
+        receiver *new_expected_receiver()
+        {
+            // after a receiver has been used, it's postprocess handler
+            // is called, this returns it to the free list when possible
+            auto handler = [this](receiver* rcv)
+                {
+                    --expected_receivers_in_use_;
+                    cnt_deb.debug(hpx::debug::str<>("new")
+                                  , "expected_receiver"
+                                  , hpx::debug::ptr(rcv)
+                                  , hpx::debug::dec<>(expected_receivers_in_use_));
+                    // if stack full, just delete
+                    if (!expected_receivers_.push(rcv)) {
+                        delete rcv;
+                    }
+                };
+            //
+            receiver *rcv = new receiver(ep_active_, *memory_pool_,
+                                         std::move(handler), false, std::uint64_t(-1));
+            return rcv;
+        }
+
         // --------------------------------------------------------------------
         // return a sender object
         // --------------------------------------------------------------------
-        sender* get_sender(int dest_rank)
+        sender* get_sender(int rank)
         {
             sender* snd = nullptr;
             if (senders_.pop(snd))
             {
-                // @TODO - fix this to only use rank = fi_addr_t(dest_rank)
-                libfabric::locality dest;
-                std::size_t addrlen = libfabric::locality_defs::array_size;
-                int ret = fi_av_lookup(av_, fi_addr_t(dest_rank),
-                                       dest.fabric_data_writable(), &addrlen);
-
-                snd->dst_addr_ = dest.fi_address();
                 ++senders_in_use_;
-                cnt_deb.debug(hpx::debug::str<>("get_sender")
-                    , hpx::debug::ptr(snd)
-                    , "from", iplocality(here_)
-                    , "to" , iplocality(dest)
-                    , "fi_addr (rank)" , hpx::debug::hex<4>(snd->dst_addr_)
-                    , "senders in use (++ get_sender)"
-                    , hpx::debug::dec<>(senders_in_use_));
+
+                // debug info only
+                if (cnt_deb.is_enabled()) {
+                    libfabric::locality addr;
+                    addr.set_fi_address(fi_addr_t(rank));
+                    std::size_t addrlen = libfabric::locality_defs::array_size;
+                    int ret = fi_av_lookup(av_, fi_addr_t(rank),
+                                           addr.fabric_data_writable(), &addrlen);
+                    if ((ret == 0) && (addrlen==libfabric::locality_defs::array_size)) {
+                        cnt_deb.debug(hpx::debug::str<>("get_sender")
+                            , hpx::debug::ptr(snd)
+                            , "from", iplocality(here_)
+                            , "to" , iplocality(addr)
+                            , "dest rank", hpx::debug::hex<4>(rank)
+                            , "fi_addr (rank)" , hpx::debug::hex<4>(fi_addr_t(rank))
+                            , "senders in use (get_sender)"
+                            , hpx::debug::dec<>(senders_in_use_));
+                    }
+                    else {
+                        throw std::runtime_error("get_sender : address vector traversal failure");
+                    }
+                }
+
+                // set the sender destination address/offset in AV table
+                snd->dst_addr_ = fi_addr_t(rank);
+                cnt_deb.debug(hpx::debug::str<>("message_region_owned_ = false"));
+                snd->message_region_external_ = false;
+            }
+            else {
+                cnt_deb.error(hpx::debug::str<>("get_sender NULL"));
             }
             return snd;
         }
@@ -587,28 +641,41 @@ namespace libfabric
         // --------------------------------------------------------------------
         // return a receiver object
         // --------------------------------------------------------------------
-        receiver* get_tagged_receiver(int src_rank, std::function<void(void)> cb_fn)
+        receiver* get_expected_receiver(int rank, unique_function<void(void)> &&cb_fn)
         {
             receiver* rcv = nullptr;
-            if (tagged_receivers_.pop(rcv))
+            if (!expected_receivers_.pop(rcv))
             {
-                // @TODO - fix this to only use rank = fi_addr_t(dest_rank)
-                libfabric::locality src;
-                std::size_t addrlen = libfabric::locality_defs::array_size;
-                int ret = fi_av_lookup(av_, fi_addr_t(src_rank),
-                                       src.fabric_data_writable(), &addrlen);
-
-                rcv->src_addr_     = src.fi_address();
-                rcv->user_recv_cb_ = std::move(cb_fn);
-                ++tagged_receivers_in_use_;
-                cnt_deb.debug(hpx::debug::str<>("get_tagged_receiver")
-                    , hpx::debug::ptr(rcv)
-                    , "here", iplocality(here_)
-                    , "src" , iplocality(src)
-                    , "fi_addr (rank)" , hpx::debug::hex<4>(rcv->src_addr_)
-                    , "receivers in use (++ get_tagged_receiver)"
-                    , hpx::debug::dec<>(tagged_receivers_in_use_));
+                rcv = new_expected_receiver();
             }
+            ++expected_receivers_in_use_;
+
+            // debug info only
+            if (cnt_deb.is_enabled()) {
+                libfabric::locality addr;
+                addr.set_fi_address(fi_addr_t(rank));
+                std::size_t addrlen = libfabric::locality_defs::array_size;
+                int ret = fi_av_lookup(av_, fi_addr_t(rank),
+                                       addr.fabric_data_writable(), &addrlen);
+                if ((ret == 0) && (addrlen==libfabric::locality_defs::array_size)) {
+                    cnt_deb.debug(hpx::debug::str<>("get_expected_receiver")
+                        , hpx::debug::ptr(rcv)
+                        , "here", iplocality(here_)
+                        , "from", iplocality(addr)
+                        , "src rank", hpx::debug::hex<4>(rank)
+                        , "fi_addr (rank)" , hpx::debug::hex<4>(fi_addr_t(rank))
+                        , "receivers in use (++ get_expected_receiver)"
+                        , hpx::debug::dec<>(expected_receivers_in_use_));
+                }
+                else {
+                    throw std::runtime_error("get_expected_receiver : address vector traversal failure");
+                }
+            }
+
+            // set the receiver source address/offset in AV table
+            rcv->src_addr_     = fi_addr_t(rank);
+            rcv->user_recv_cb_ = std::move(cb_fn);
+
             return rcv;
         }
 
@@ -761,7 +828,7 @@ namespace libfabric
             create_completion_queues(fabric_info_, m_size_ );
 
             MPI_exchange_localities();
-
+            debug_print_av_vector();
 #endif
             cnt_deb.debug(hpx::debug::str<>("Done localities"));
             FUNC_END_DEBUG_MSG;
@@ -815,7 +882,7 @@ namespace libfabric
                         addresses.push_back(addr);
                     }
                     else {
-                        throw std::runtime_error("address vector traversal failure");
+                        throw std::runtime_error("update_bootstrap_connections : address vector traversal failure");
                     }
                 }
 
@@ -836,22 +903,61 @@ namespace libfabric
         }
 
         // --------------------------------------------------------------------
-        gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
+        void debug_print_av_vector()
         {
-            return gridtools::ghex::tl::cb::progress_status{
-                        poll_send_queue(),
-                        poll_recv_queue(),
-                        0};
+            std::size_t N = get_num_localities();
+            libfabric::locality addr;
+            std::size_t addrlen = libfabric::locality_defs::array_size;
+            for (std::size_t i=0; i<N; ++i) {
+                int ret = fi_av_lookup(av_, fi_addr_t(i),
+                                       addr.fabric_data_writable(), &addrlen);
+                addr.set_fi_address(fi_addr_t(i));
+                if ((ret == 0) && (addrlen==libfabric::locality_defs::array_size)) {
+                    cnt_deb.debug(hpx::debug::str<>("address vector")
+                        , hpx::debug::dec<3>(i), iplocality(addr));
+
+                }
+                else {
+                    throw std::runtime_error("debug_print_av_vector : address vector traversal failure");
+                }
+            }
+
         }
 
         // --------------------------------------------------------------------
-        unsigned int poll_send_queue()
+        gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
         {
-//            LOG_TIMED_INIT(poll);
-//            LOG_TIMED_BLOCK(poll, DEVEL, 5.0, { cnt_deb.debug("poll_send_queue"); });
+            bool retry = true;
+            std::uint32_t sends = 0;
+            std::uint32_t recvs = 0;
+            while (retry) {
+                progress_count prog_s = poll_send_queue();
+                progress_count prog_r = poll_recv_queue();
+                sends += prog_s.user_msgs;
+                recvs += prog_r.user_msgs;
+                // we always retry until no new completion events are
+                // found. this helps progress all messages
+                retry = prog_s.completions_handled || prog_r.completions_handled;
+            }
+            return gridtools::ghex::tl::cb::progress_status{sends, recvs, 0};
+        }
+/*
+        struct progress {
+            bool completions_handled = false;
+            std::uint32_t user_msgs = 0;
+        };
+*/
+        // --------------------------------------------------------------------
+        progress_count poll_send_queue()
+        {
+            static auto polling = cnt_deb.make_timer(1
+                    , hpx::debug::str<>("poll send queue"));
+            cnt_deb.timed(polling);
 
             fi_cq_msg_entry entry;
             int ret = fi_cq_read(txcq_, &entry, 1);
+            //
+            progress_count processed{ret>0, 0};
             //
             if (ret>0) {
                 cnt_deb.debug(hpx::debug::str<>("Completion")
@@ -863,32 +969,37 @@ namespace libfabric
                 if (entry.flags & FI_RMA) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq RMA"
-                        , "Context " , hpx::debug::ptr(entry.op_context));
+                        , "context" , hpx::debug::ptr(entry.op_context));
                     rma_receiver* rcv = reinterpret_cast<rma_receiver*>(entry.op_context);
-                    rcv->handle_rma_read_completion();
+                    if (rcv->handle_rma_read_completion()) {
+                        // the user receive callback was triggered
+                        processed.user_msgs += 1;
+                        // poll again to ensure any ACKs are pushed through
+                        processed += poll_send_queue();
+                    }
                 }
                 else if (entry.flags == (FI_MSG | FI_SEND)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq MSG send completion");
                     sender* handler = reinterpret_cast<sender*>(entry.op_context);
-                    handler->handle_send_completion();
+                    processed.user_msgs += handler->handle_send_completion();
                 }
                 else if (entry.flags == (FI_TAGGED | FI_MSG | FI_SEND)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq MSG tagged send completion");
                     sender* handler = reinterpret_cast<sender*>(entry.op_context);
-                    handler->handle_send_completion();
+                    processed.user_msgs += handler->handle_send_completion();
                 }
                 else {
                     cnt_deb.error("$$$$$ Received an unknown txcq completion *****"
                         , hpx::debug::dec<>(entry.flags));
                     std::terminate();
                 }
-                return 1;
+                return processed;
             }
             else if (ret==0 || ret==-FI_EAGAIN) {
                 // do nothing, we will try again on the next check
-//                LOG_TIMED_MSG(poll, DEVEL, 10, "txcq " , (ret==0?"---":"FI_EAGAIN"));
+                cnt_deb.timed(polling, "txcq" , (ret==0?"---":"FI_EAGAIN"));
             }
             else if (ret == -FI_EAVAIL) {
                 struct fi_cq_err_entry e = {};
@@ -899,17 +1010,17 @@ namespace libfabric
                 // 'fabric errno' is returned
                 if(e.err == err_sz) {
                     cnt_deb.error(
-                          "txcq Error FI_EAVAIL with len " , hpx::debug::hex<6>(e.len)
-                        , "context " , hpx::debug::ptr(e.op_context));
+                          "txcq Error FI_EAVAIL with len" , hpx::debug::hex<6>(e.len)
+                        , "context" , hpx::debug::ptr(e.op_context));
                 }
                 // flags might not be set correctly
                 if (e.flags == (FI_MSG | FI_SEND)) {
-                    cnt_deb.error("txcq Error FI_EAVAIL for FI_SEND with len " , hpx::debug::hex<6>(e.len)
-                        , "context " , hpx::debug::ptr(e.op_context));
+                    cnt_deb.error("txcq Error FI_EAVAIL for FI_SEND with len" , hpx::debug::hex<6>(e.len)
+                        , "context" , hpx::debug::ptr(e.op_context));
                 }
                 if (e.flags & FI_RMA) {
                     cnt_deb.error("txcq Error FI_EAVAIL for FI_RMA with len" , hpx::debug::hex<6>(e.len)
-                        , "context " , hpx::debug::ptr(e.op_context));
+                        , "context" , hpx::debug::ptr(e.op_context));
                 }
                 rma_base *base = reinterpret_cast<rma_base*>(e.op_context);
                 switch (base->context_type()) {
@@ -927,68 +1038,68 @@ namespace libfabric
             else {
                 cnt_deb.error("unknown error in completion txcq read");
             }
-            return 0;
+            return processed;
         }
 
         // --------------------------------------------------------------------
-        unsigned int poll_recv_queue()
+        progress_count poll_recv_queue()
         {
-//            LOG_TIMED_INIT(poll);
-//            LOG_TIMED_BLOCK(poll, DEVEL, 5.0, { cnt_deb.debug("poll_recv_queue"); });
+            static auto polling = cnt_deb.make_timer(1
+                    , hpx::debug::str<>("poll recv queue"));
+            cnt_deb.timed(polling);
 
-            int result = 0;
             fi_addr_t src_addr;
             fi_cq_msg_entry entry;
 
             // receives will use fi_cq_readfrom as we want the source address
             int ret = fi_cq_readfrom(rxcq_, &entry, 1, &src_addr);
             //
+            progress_count processed{ret>0, 0};
+            //
             if (ret>0) {
                 cnt_deb.debug(hpx::debug::str<>("Completion")
-                    , "rxcq wr_id "
+                    , "rxcq wr_id"
                     , fi_tostr(&entry.flags, FI_TYPE_OP_FLAGS)
                     , "(" , hpx::debug::dec<>(entry.flags) , ")"
-                    , "source" , hpx::debug::ptr(src_addr)
+                    , "source"  , hpx::debug::dec<3>(src_addr)
                     , "context" , hpx::debug::ptr(entry.op_context)
-                    , "length" , hpx::debug::hex<8>(entry.len));
+                    , "length"  , hpx::debug::hex<8>(entry.len));
                 if (src_addr == FI_ADDR_NOTAVAIL)
                 {
                     cnt_deb.debug(hpx::debug::str<>("New connection?")
-                        , "(bootstrap): "
+                        , "(bootstrap) :"
                         , "Source address not available...");
                     reinterpret_cast<receiver *>(entry.op_context)->
                         handle_new_connection(this, entry.len);
+                    processed.user_msgs += 1;
                 }
-
-                if ((entry.flags & FI_RMA) == FI_RMA) {
-                    cnt_deb.debug(hpx::debug::str<>("Completion")
-                        , "rxcq RMA");
-                }
-
+//                else if ((entry.flags & FI_RMA) == FI_RMA) {
+//                    cnt_deb.debug(hpx::debug::str<>("Completion")
+//                        , "rxcq RMA");
+//                }
                 else if (entry.flags == (FI_MSG | FI_RECV)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
-                        , "rxcq recv completion "
+                        , "rxcq recv completion"
                         , hpx::debug::ptr(entry.op_context));
-                    reinterpret_cast<receiver *>(entry.op_context)->
-                        handle_recv(src_addr, entry.len);
+                    processed.user_msgs += reinterpret_cast<receiver *>
+                            (entry.op_context)->handle_recv(src_addr, entry.len);
                 }
                 else if (entry.flags == (FI_TAGGED | FI_MSG | FI_RECV)) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
-                        , "rxcq recv tagged completion "
+                        , "rxcq recv tagged completion"
                         , hpx::debug::ptr(entry.op_context));
-                    reinterpret_cast<receiver *>(entry.op_context)->
-                        handle_recv(src_addr, entry.len);
+                    processed.user_msgs += reinterpret_cast<receiver *>
+                            (entry.op_context)->handle_recv(src_addr, entry.len);
                 }
                 else {
-                    cnt_deb.error("Received an unknown rxcq completion "
+                    cnt_deb.error("Received an unknown rxcq completion"
                         , hpx::debug::dec<>(entry.flags));
                     std::terminate();
                 }
-                result = 1;
             }
             else if (ret==0 || ret==-FI_EAGAIN) {
                 // do nothing, we will try again on the next check
-//                LOG_TIMED_MSG(poll, DEVEL, 10, "rxcq " , (ret==0?"---":"FI_EAGAIN"));
+//                LOG_TIMED_MSG(poll, DEVEL, 10, "rxcq" , (ret==0?"---":"FI_EAGAIN"));
             }
             else if (ret == -FI_EAVAIL) {
                 // read the full error status
@@ -998,18 +1109,18 @@ namespace libfabric
                 // from the manpage 'man 3 fi_cq_readerr'
                 //
                 cnt_deb.error("rxcq Error ??? "
-                              , "err "     , hpx::debug::dec<>(-e.err)
-                              , "flags "   , hpx::debug::hex<6>(e.flags)
-                              , "len "     , hpx::debug::hex<6>(e.len)
-                              , "context " , hpx::debug::ptr(e.op_context)
-                              , "error "   ,
+                              , "err"     , hpx::debug::dec<>(-e.err)
+                              , "flags"   , hpx::debug::hex<6>(e.flags)
+                              , "len"     , hpx::debug::hex<6>(e.len)
+                              , "context" , hpx::debug::ptr(e.op_context)
+                              , "error"   ,
                 fi_cq_strerror(rxcq_, e.prov_errno, e.err_data, (char*)e.buf, e.len));
                 std::terminate();
             }
             else {
                 cnt_deb.error("unknown error in completion rxcq read");
             }
-            return result;
+            return processed;
         }
 
         // --------------------------------------------------------------------
@@ -1123,7 +1234,7 @@ namespace libfabric
             cnt_deb.trace(hpx::debug::str<>("AV add")
                           , "rank" , hpx::debug::dec<>(fi_addr)
                           , iplocality(new_locality)
-                          , "fi_addr " , hpx::debug::hex<4>(fi_addr));
+                          , "fi_addr" , hpx::debug::hex<4>(fi_addr));
             FUNC_END_DEBUG_MSG;
             return new_locality;
         }

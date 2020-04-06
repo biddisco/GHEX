@@ -10,6 +10,9 @@ endif()
 cmake_policy(SET CMP0048 NEW)
 #cmake_policy(SET CMP0074 NEW)
 
+include(CTest)
+enable_testing()
+
 set(USE_GPU "OFF" CACHE BOOL "use cuda")
 set(USE_HYBRID_TESTS "ON" CACHE BOOL "run gpu+cpu tests")
 

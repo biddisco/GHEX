@@ -11,7 +11,7 @@
 #ifndef INCLUDED_GHEX_TL_LIBFABRIC_FUTURE_HPP
 #define INCLUDED_GHEX_TL_LIBFABRIC_FUTURE_HPP
 
-#include "./request.hpp"
+#include <ghex/transport_layer/libfabric/request.hpp>
 
 namespace gridtools{
     namespace ghex {
@@ -66,7 +66,7 @@ namespace gridtools{
                 bool cancel()
                 {
                     // @TODO not yet implemented
-                    return false;
+                    return true;
                 }
             };
 
@@ -110,19 +110,7 @@ namespace gridtools{
 
                 bool cancel()
                 {
-/*
-                    // we can  only cancel recv requests...
-                    if  (is_recv()) {
-                        GHEX_CHECK_MPI_RESULT(MPI_Cancel(&m_handle.get()));
-                        MPI_Status st;
-                        GHEX_CHECK_MPI_RESULT(MPI_Wait(&m_handle.get(), &st));
-                        int flag = false;
-                        GHEX_CHECK_MPI_RESULT(MPI_Test_cancelled(&st, &flag));
-                        return flag;
-                    }
-                    else
-*/
-                        return false;
+                        return true;
                 }
             };
 

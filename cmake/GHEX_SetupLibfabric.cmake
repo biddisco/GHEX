@@ -136,13 +136,22 @@ ghex_add_config_define_namespace(
 #------------------------------------------------------------------------------
 # Preposting options
 #------------------------------------------------------------------------------
-ghex_option(GHEX_LIBFABRIC_MAX_PREPOSTS STRING
-  "The number of pre-posted receive buffers (default: 512)"
-  "512" CATEGORY "libfabric" ADVANCED)
+ghex_option(GHEX_LIBFABRIC_MAX_UNEXPECTED STRING
+  "The number of pre-posted unexpected receive buffers (default: 32)"
+  "32" CATEGORY "libfabric" ADVANCED)
 
 ghex_add_config_define_namespace(
-    DEFINE    GHEX_LIBFABRIC_MAX_PREPOSTS
-    VALUE     ${GHEX_LIBFABRIC_MAX_PREPOSTS}
+    DEFINE    GHEX_LIBFABRIC_MAX_UNEXPECTED
+    VALUE     ${GHEX_LIBFABRIC_MAX_UNEXPECTED}
+    NAMESPACE libfabric)
+
+ghex_option(GHEX_LIBFABRIC_MAX_EXPECTED STRING
+  "The number of pre-posted receive buffers (default: 128)"
+  "128" CATEGORY "libfabric" ADVANCED)
+
+ghex_add_config_define_namespace(
+    DEFINE    GHEX_LIBFABRIC_MAX_EXPECTED
+    VALUE     ${GHEX_LIBFABRIC_MAX_EXPECTED}
     NAMESPACE libfabric)
 
 #------------------------------------------------------------------------------

@@ -12,8 +12,11 @@
 #include <ghex/threads/atomic/primitives.hpp>
 #include <iostream>
 #include <iomanip>
+#include <chrono>
 
 #include <gtest/gtest.h>
+
+#include <ghex/transport_layer/libfabric/print.hpp>
 
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
@@ -55,6 +58,10 @@ TEST(context, multi) {
         auto msg_1 = comm_1.make_message(size*sizeof(int));
         auto msg_2 = comm_2.make_message(size*sizeof(int));
 
+        std::stringstream temp;
+        temp << "R " << comm_1.rank() << " T1 " << token_1.id() << " T2 " << token_2.id() << std::endl;
+        std::cerr << temp.str();
+
         if (comm_1.rank() == 0) {
             const int payload_offset = 1+token_1.id();
             for (unsigned int i=0; i<size; ++i)
@@ -89,10 +96,21 @@ TEST(context, multi) {
         }
 
 
-        if (comm_1.rank() == 0)
-            while(counter_1 != comm_1.size()-1) { comm_1.progress(); }
-        if (comm_2.rank() == 0)
-            while(counter_2 != comm_2.size()-1) { comm_2.progress(); }
+        if (comm_1.rank() == 0) {
+            std::cerr << "a1 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
+            std::cerr << "a1 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
+            while(counter_1 != comm_1.size()-1) { comm_1.progress(); comm_2.progress(); }
+            std::cerr << "a2 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
+            std::cerr << "a2 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
+        }
+
+        if (comm_2.rank() == 0) {
+            std::cerr << "b1 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
+            std::cerr << "b1 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
+            while(counter_2 != comm_2.size()-1) { comm_1.progress(); comm_2.progress(); }
+            std::cerr << "b2 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
+            std::cerr << "b2 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
+        }
 
         if (comm_2.rank() != 0)
             fut_2.wait();
@@ -102,8 +120,9 @@ TEST(context, multi) {
         // check message
         if (comm_1.rank() != 0) {
             const int payload_offset = 1+token_1.id();
-            for (unsigned int i=0; i<size; ++i)
+            for (unsigned int i=0; i<size; ++i) {
                 EXPECT_TRUE(*reinterpret_cast<int*>(msg_1.data()+i*sizeof(int)) == (int)i+payload_offset);
+            }
         }
         if (comm_2.rank() != 0) {
             const int payload_offset = (size-1)+(num_threads)+1+token_2.id();
@@ -116,6 +135,18 @@ TEST(context, multi) {
     threads.reserve(num_threads);
     for (int i=0; i<num_threads; ++i)
         threads.push_back(std::thread{func});
+
+#ifdef EXTRA_POLLING
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    while(true)
+    {
+        context_1.get_serial_communicator().progress();
+        context_2.get_serial_communicator().progress();
+        if(std::chrono::steady_clock::now() - start > std::chrono::seconds(1))
+            break;
+    }
+#endif
+
     for (auto& t : threads)
         t.join();
 }
@@ -201,6 +232,17 @@ TEST(context, multi_ordered) {
     threads.reserve(num_threads);
     for (int i=0; i<num_threads; ++i)
         threads.push_back(std::thread{func});
+
+#ifdef EXTRA_POLLING
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    while(true)
+    {
+        context_1.get_serial_communicator().progress();
+        if(std::chrono::steady_clock::now() - start > std::chrono::seconds(1))
+            break;
+    }
+#endif
+
     for (auto& t : threads)
         t.join();
 }

@@ -29,7 +29,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<false> mps_deb("MPSTACK");
+    static hpx::debug::enable_print<true> mps_deb("MPSTACK");
 
 #undef FUNC_START_DEBUG_MSG
 #undef FUNC_END_DEBUG_MSG
@@ -80,10 +80,10 @@ namespace detail
         // ------------------------------------------------------------------------
         bool allocate_pool()
         {
-            mps_deb.trace(PoolType::desc(), "Allocating "
-               , "ChunkSize ", hexuint32(ChunkSize)
-               , "num_chunks ", hpx::debug::dec<>(MaxChunks)
-               , "total ", hexuint32(ChunkSize*MaxChunks));
+            mps_deb.trace(PoolType::desc(), "Allocating"
+               , "ChunkSize", hexuint32(ChunkSize)
+               , "num_chunks", hpx::debug::dec<>(MaxChunks)
+               , "total", hexuint32(ChunkSize*MaxChunks));
 
             // Allocate one very large registered block for N small blocks
             region_ptr block =
@@ -103,7 +103,7 @@ namespace detail
                     ChunkSize,
                     region_type::BLOCK_PARTIAL
                 );
-                mps_deb.trace(PoolType::desc(), "Allocate Block "
+                mps_deb.trace(PoolType::desc(), "Allocate Block"
                    , hpx::debug::dec<>(i)
                    , region_list_[i]);
                 // push the pointer onto our stack
@@ -119,8 +119,8 @@ namespace detail
         {
             if (in_use_!=0) {
                 mps_deb.trace(PoolType::desc()
-                   , "Deallocating free_list : Not all blocks were returned "
-                   , " refcounts ", hpx::debug::dec<>(in_use_));
+                   , "Deallocating free_list : Not all blocks were returned"
+                   , "refcounts", hpx::debug::dec<>(in_use_));
             }
 #ifdef RMA_POOL_DEBUG_SET
             for (auto region : region_set_) {
@@ -147,14 +147,14 @@ namespace detail
                 region_set_.erase(region);
             }
 #endif
-            mps_deb.trace(PoolType::desc(), "Push block ", *region
-               , "Used ", hpx::debug::dec<>(in_use_-1)
-               , "Accesses ", hpx::debug::dec<>(accesses_));
+            mps_deb.trace(PoolType::desc(), "Push block", *region
+               , "Used", hpx::debug::dec<>(in_use_-1)
+               , "Accesses", hpx::debug::dec<>(accesses_));
 
             LOG_EXCLUSIVE(
                 uintptr_t val = uintptr_t(region->get_address());
                 mps_deb.trace(PoolType::desc()
-                   , "Writing 0xdeadbeef to region address "
+                   , "Writing 0xdeadbeef to region address"
                    , hpx::debug::ptr(val));
                 if (region->get_address()!=nullptr) {
                     // get use the pointer to the region
@@ -166,7 +166,7 @@ namespace detail
             );
 
             if (!free_list_.push(region)) {
-                mps_deb.error(PoolType::desc(), "Error in memory pool push "
+                mps_deb.error(PoolType::desc(), "Error in memory pool push"
                    , *region);
             }
             // decrement one reference
@@ -184,10 +184,10 @@ namespace detail
             }
             ++in_use_;
             ++accesses_;
-            mps_deb.trace(PoolType::desc(), "Pop block "
+            mps_deb.trace(PoolType::desc(), "Pop block"
                , *region
-               , "Used ", hpx::debug::dec<>(in_use_)
-               , "Accesses ", hpx::debug::dec<>(accesses_));
+               , "Used", hpx::debug::dec<>(in_use_)
+               , "Accesses", hpx::debug::dec<>(accesses_));
 
 #ifdef RMA_POOL_DEBUG_SET
             {
@@ -210,10 +210,10 @@ namespace detail
         std::string status() {
             std::stringstream temp;
             temp << "| " << PoolType::desc()
-                 << "ChunkSize " << hpx::debug::hex<6>(ChunkSize)
-                 << "Free " << hpx::debug::dec<>(MaxChunks-in_use_)
-                 << "Used " << hpx::debug::dec<>(in_use_)
-                 << "Accesses " << hpx::debug::dec<>(accesses_);
+                 << " ChunkSize " << hpx::debug::hex<6>(ChunkSize)
+                 << " Free " << hpx::debug::dec<>(MaxChunks-in_use_)
+                 << " Used " << hpx::debug::dec<>(in_use_)
+                 << " Accesses " << hpx::debug::dec<>(accesses_);
             return temp.str();
         }
 

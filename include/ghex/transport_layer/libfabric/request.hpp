@@ -12,9 +12,9 @@
 #define INCLUDED_GHEX_TL_LIBFABRIC_REQUEST_HPP
 
 #include <functional>
-#include "../context.hpp"
-#include "../callback_utils.hpp"
-#include "../../threads/atomic/primitives.hpp"
+#include <ghex/threads/atomic/primitives.hpp>
+#include <ghex/transport_layer/context.hpp>
+#include <ghex/transport_layer/callback_utils.hpp>
 #include <ghex/transport_layer/libfabric/controller.hpp>
 
 namespace gridtools{
@@ -25,7 +25,7 @@ namespace gridtools{
             /** @brief the type of the communication */
             enum class request_kind : int { none=0, send, recv };
 
-            /** @brief thin wrapper around MPI_Request */
+            /** @brief simple holder for a shared bool (ready flag) */
             struct request_t
             {
                 using controller_type = ::ghex::tl::libfabric::controller;
@@ -35,14 +35,10 @@ namespace gridtools{
 
                 request_t() noexcept = default;
 
-//                request_t(controller_type *cont, ) noexcept
-//                    : m_controller(cont)
-//                    , m_kind(request_kind::none)
-//                    , m_ready(false) {}
-
+                // we don't bother checking if m_controller is valid because
+                // a request should never be created without it
                 bool test()
                 {
-//                    if (!m_controller) return true;
                     if (!*m_ready) {
                         m_controller->poll_for_work_completions();
                     }
@@ -51,14 +47,13 @@ namespace gridtools{
 
                 void wait()
                 {
-                    if (!m_controller) return;
                     while (!test());
                 }
 
                 bool cancel()
                 {
                     // @TODO not yet implemented
-                    return false;
+                    return true;
                 }
 
             };

@@ -242,8 +242,8 @@ private:
         os << std::dec
            << hpx::debug::ipaddr(p.data.fabric_data()) << " - "
            << hpx::debug::ipaddr(p.data.ip_address())
-           << ":" << hpx::debug::dec<>(p.data.port())
-           << "(" << hpx::debug::dec<>(p.data.fi_address()) << ") ";
+           << ":"  << hpx::debug::dec<>(p.data.port())
+           << " (" << hpx::debug::dec<>(p.data.fi_address()) << ") ";
         return os;
     }
 

@@ -34,18 +34,25 @@ namespace libfabric
         // --------------------------------------------------------------------
         // construct receive object
         receiver::receiver(fid_ep* endpoint,
-                 rma::memory_pool<region_provider>& memory_pool)
+                 rma::memory_pool<region_provider>& memory_pool,
+                 postprocess_receiver_fn &&handler, bool prepost, int tag)
             : rma_base(ctx_receiver)
             , endpoint_(endpoint)
             , header_region_(memory_pool.allocate_region(memory_pool.small_.chunk_size()))
+            , ghex_region_(nullptr)
             , memory_pool_(&memory_pool)
         {
             recv_deb.trace(hpx::debug::str<>("created receiver")
                 , hpx::debug::ptr(this));
+
+            // called when the receiver completes - durng cleanup
+            postprocess_handler_ = std::move(handler);
+
             // create an rma_receivers per receive and push it onto the rma stack
-            create_rma_receiver(true);
+            create_rma_receiver(prepost);
+
             // Once constructed, we need to post the receive...
-            pre_post_receive(uint64_t(-1));
+            if (prepost) pre_post_receive(tag);
         }
 
         // --------------------------------------------------------------------
@@ -66,18 +73,17 @@ namespace libfabric
         // dumping counters
         void receiver::cleanup()
         {
+            FUNC_START_DEBUG_MSG;
             rma_receiver *rcv = nullptr;
 
             while (receiver::rma_receivers_.pop(rcv))
             {
-//                msg_plain_    += rcv->msg_plain_;
-//                msg_rma_      += rcv->msg_rma_;
-//                sent_ack_     += rcv->sent_ack_;
-//                rma_reads_    += rcv->rma_reads_;
-//                recv_deletes_ += rcv->recv_deletes_;
-                recv_deb.error("Cleanup" , "active", hpx::debug::dec<>(--active_rma_receivers_));
+                recv_deb.debug("Cleanup"
+                    , "active rma_receivers"
+                    , hpx::debug::dec<>(--active_rma_receivers_));
                 delete rcv;
             }
+            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -90,18 +96,23 @@ namespace libfabric
         // just get the address and add it to the address_vector
         //
         // This function is only called when lifabric is used for bootstrapping
-        bool receiver::handle_new_connection(controller *controller, std::uint64_t len)
+        void receiver::handle_new_connection(controller *controller, std::uint64_t len)
         {
             FUNC_START_DEBUG_MSG;
+
+            // this should only ever occurr on an unexpected message
+            HPX_ASSERT(tag_ == std::uint64_t(-1));
+
             recv_deb.debug(hpx::debug::str<>("new connection")
-                , "length ", hpx::debug::dec<>(len)
-                , "pre-posted " , hpx::debug::dec<>(--receives_pre_posted_));
+                , "length", hpx::debug::dec<>(len)
+                , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
 
             // We save the received region and swap it with a newly allocated one
             // so that we can post a recv again as soon as possible.
             region_type* region = header_region_;
             header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            pre_post_receive(uint64_t(-1));
+            // by default : this will (p)repost the receive buffer
+            postprocess_handler_(this);
 
             recv_deb.trace(hpx::debug::str<>("header")
                 ,  hpx::debug::mem_crc32(region->get_address()
@@ -130,7 +141,6 @@ namespace libfabric
             controller->update_bootstrap_connections();
 
             FUNC_END_DEBUG_MSG;
-            return true;
         }
 
         // --------------------------------------------------------------------
@@ -138,6 +148,7 @@ namespace libfabric
         // rma transfers are needed
         rma_receiver *receiver::create_rma_receiver(bool push_to_stack)
         {
+            FUNC_START_DEBUG_MSG;
             // this is the rma_receiver completion handling function
             // it just returns the rma_receiver back to the stack
             auto f = [](rma_receiver* recv)
@@ -175,12 +186,14 @@ namespace libfabric
             else {
                 return recv;
             }
+            FUNC_END_DEBUG_MSG;
             return nullptr;
         }
 
         // --------------------------------------------------------------------
         rma_receiver* receiver::get_rma_receiver(fi_addr_t const& src_addr)
         {
+            FUNC_START_DEBUG_MSG;
             rma_receiver *recv = nullptr;
             // cannot yield here - might be called from background thread
             if (!receiver::rma_receivers_.pop(recv)) {
@@ -188,16 +201,19 @@ namespace libfabric
             }
             --active_rma_receivers_;
             recv_deb.debug(hpx::debug::str<>("get_rma_receiver")
+                , hpx::debug::ptr(recv)
                 , "active", hpx::debug::dec<>(active_rma_receivers_));
             //
             recv->src_addr_       = src_addr;
             recv->endpoint_       = endpoint_;
             recv->header_region_  = nullptr;
             recv->chunk_region_   = nullptr;
-            recv->message_region_ = nullptr;
+            recv->message_region_ = ghex_region_;
+            recv->message_region_external_ = true;
             recv->header_         = nullptr;
             recv->rma_count_      = 0;
             recv->chunk_fetch_    = false;
+            FUNC_END_DEBUG_MSG;
             return recv;
         }
 
@@ -205,46 +221,49 @@ namespace libfabric
         // A received message is routed by the controller into this function.
         // it might be an incoming message or just an ack sent to inform that
         // all rdma reads are complete from a previous send operation.
-        void receiver::handle_recv(fi_addr_t const& src_addr, std::uint64_t len)
+        // this function returns 1 if
+        int receiver::handle_recv(fi_addr_t const& src_addr, std::uint64_t len)
         {
             FUNC_START_DEBUG_MSG;
             static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
                 "sizeof(std::uint64_t) != sizeof(std::size_t)");
 
             recv_deb.debug(hpx::debug::str<>("handling recv")
+                , "tag", hpx::debug::hex<16>(tag_)
                 , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
 
             // If we receive a message of 8 bytes, we got a ack and need to handle
             // the tag completion...
             if (len <= sizeof(std::uint64_t))
             {
-                // @TODO: fixme immediate tag retrieval
+                // this should only ever occurr on an unexpected message
+                HPX_ASSERT(tag_ == std::uint64_t(-1));
+
                 // Get the sender that has completed rma operations and signal to it
                 // that it can now cleanup - all remote get operations are done.
                 sender* snd = *reinterpret_cast<sender **>(header_region_->get_address());
-                pre_post_receive(uint64_t(-1));
+                postprocess_handler_(this);
                 recv_deb.debug(hpx::debug::str<>("RMA ack")
                     , hpx::debug::ptr(snd));
                 ++acks_received_;
-                snd->handle_message_completion_ack();
-                return;
+                FUNC_END_DEBUG_MSG;
+                return snd->handle_message_completion_ack();
             }
 
             rma_receiver* recv = get_rma_receiver(src_addr);
-            recv->user_recv_cb_ = user_recv_cb_;
+            recv->user_recv_cb_ = std::move(user_recv_cb_);
 
             // We save the received region and swap it with a newly allocated one
             // so that we can post a recv again as soon as possible.
             region_type* region = header_region_;
             header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            pre_post_receive(uint64_t(-1));
+            postprocess_handler_(this);
 
             // we dispatch our work to our rma_receiver once it completed the
             // prior message. The saved region is passed to the rma handler
-            ++messages_handled_;
-            recv->read_message(region, src_addr);
-
+            ++messages_handled_;            
             FUNC_END_DEBUG_MSG;
+            return recv->read_message(region, src_addr);
         }
 
         // --------------------------------------------------------------------
@@ -254,12 +273,15 @@ namespace libfabric
         void receiver::pre_post_receive(uint64_t tag)
         {
             FUNC_START_DEBUG_MSG;
+            //
+            tag_ = tag;
             void *desc = header_region_->get_local_key();
+            //
             recv_deb.debug(hpx::debug::str<>("Pre-Posting")
                 , *header_region_
-                , "context " , hpx::debug::ptr(this)
-                , "tag", hpx::debug::dec<>(tag)
-                , "pre-posted " , hpx::debug::dec<>(++receives_pre_posted_));
+                , "context" , hpx::debug::ptr(this)
+                , "tag", hpx::debug::hex<16>(tag_)
+                , "pre-posted" , hpx::debug::dec<>(++receives_pre_posted_));
 
             // this should never actually return true and yield
             bool ok = false;
@@ -294,6 +316,22 @@ namespace libfabric
             }
             FUNC_END_DEBUG_MSG;
         }
+
+        // --------------------------------------------------------------------
+        // the receiver posts a single receive buffer to the queue, attaching
+        // itself as the context, so that when a message is received
+        // the owning receiver is called to handle processing of the buffer
+        template <typename Message>
+        void receiver::pre_post_receive(Message &msg, uint64_t tag)
+        {
+            FUNC_START_DEBUG_MSG;
+            //
+            ghex_region_ = dynamic_cast<region_type*>(
+                        memory_pool_->region_from_address(msg.data()));
+            pre_post_receive(tag);
+            FUNC_END_DEBUG_MSG;
+        }
+
 
         performance_counter<unsigned int> receiver::messages_handled_(0);
         performance_counter<unsigned int> receiver::acks_received_(0);

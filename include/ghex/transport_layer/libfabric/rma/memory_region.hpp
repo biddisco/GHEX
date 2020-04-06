@@ -79,8 +79,8 @@ namespace rma
         }
 
         // --------------------------------------------------------------------
-        // A user allocated region use memory allocted by the user.
-        // on destruction, the memory is unregisterd, but not deleted
+        // A user allocated region uses memory allocted by the user.
+        // on destruction, the memory is unregistered, but not deleted
         inline void set_user_region() {
             flags_ |= BLOCK_USER;
         }

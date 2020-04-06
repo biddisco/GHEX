@@ -186,7 +186,7 @@ namespace rma
                 , medium_.status()
                 , large_.status()
                 , large_.status()
-                , "temp regions " , hpx::debug::dec<>(temp_regions));
+                , "temp regions" , hpx::debug::dec<>(temp_regions));
 
             return region;
         }
@@ -233,7 +233,7 @@ namespace rma
                 , small_.status()
                 , medium_.status()
                 , large_.status()
-                , "temp regions " , hpx::debug::dec<>(temp_regions));
+                , "temp regions" , hpx::debug::dec<>(temp_regions));
 
         }
 
@@ -247,6 +247,20 @@ namespace rma
             region->allocate(protection_domain_, length);
             ++temp_regions;
             pool_deb.trace(hpx::debug::str<>("Allocating")
+                , "temp region", *region
+                , "temp regions" , hpx::debug::dec<>(temp_regions));
+            return region;
+        }
+
+        //----------------------------------------------------------------------------
+        // registers a user allocated address and returns a region,
+        // it will be unregistered and deleted, not returned to the pool
+        region_type* register_temporary_region(const void *ptr, std::size_t length)
+        {
+            region_type *region = new region_type(protection_domain_, ptr, length);
+            region->set_temp_region();
+            ++temp_regions;
+            pool_deb.trace(hpx::debug::str<>("Registered")
                 , "temp region", *region
                 , "temp regions" , hpx::debug::dec<>(temp_regions));
             return region;
@@ -289,7 +303,8 @@ namespace rma
         void add_address_to_map(void const * addr, region_type* region)
         {
             pool_deb.trace(hpx::debug::str<>("Expensive")
-                , "add_address_to_map");
+                , "add_address_to_map"
+                , hpx::debug::ptr(addr), *region);
             std::pair<void const *, region_type*> val(addr, region);
             region_alloc_pointer_map_.insert(val);
         }
@@ -297,7 +312,8 @@ namespace rma
         void remove_address_from_map(void const * addr, memory_region* region)
         {
             pool_deb.trace(hpx::debug::str<>("Expensive")
-                , "remove_address_from_map");
+                , "remove_address_from_map"
+                , hpx::debug::ptr(addr), *region);
             region_alloc_pointer_map_.erase(addr);
         }
 

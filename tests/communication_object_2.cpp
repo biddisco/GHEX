@@ -14,13 +14,24 @@
 #include <ghex/structured/regular/halo_generator.hpp>
 #include <ghex/structured/regular/field_descriptor.hpp>
 #include <ghex/communication_object_2.hpp>
-#ifndef GHEX_TEST_USE_UCX
-#include <ghex/transport_layer/mpi/context.hpp>
-#else
-#include <ghex/transport_layer/ucx/context.hpp>
-#endif
+
 #include <ghex/threads/atomic/primitives.hpp>
 #include <ghex/threads/std_thread/primitives.hpp>
+
+#ifdef GHEX_TEST_USE_UCX
+#include <ghex/transport_layer/ucx/context.hpp>
+using transport = gridtools::ghex::tl::ucx_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#else
+#include <ghex/transport_layer/mpi/context.hpp>
+using transport = gridtools::ghex::tl::mpi_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#endif
+
 #include <array>
 #include <iomanip>
 
@@ -43,15 +54,6 @@ __global__ void print_kernel() {
 }
 #endif
 
-#ifndef GHEX_TEST_USE_UCX
-using transport = gridtools::ghex::tl::mpi_tag;
-using threading = gridtools::ghex::threads::std_thread::primitives;
-//using threading = gridtools::ghex::threads::atomic::primitives;
-#else
-using transport = gridtools::ghex::tl::ucx_tag;
-using threading = gridtools::ghex::threads::std_thread::primitives;
-//using threading = gridtools::ghex::threads::atomic::primitives;
-#endif
 using context_type = gridtools::ghex::tl::context<transport, threading>;
 
 template<typename T, std::size_t N>

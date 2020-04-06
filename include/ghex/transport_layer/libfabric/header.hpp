@@ -74,7 +74,7 @@ namespace libfabric
         // data we send if there are zero copy blocks (or non piggybacked header/chunks)
         struct rma_info
         {
-            uint64_t tag;
+            uint64_t owner;
         };
 
         // data we send if message is piggybacked
@@ -164,7 +164,7 @@ namespace libfabric
     public:
         // NB. first  = rma zero-copy
         //     second = ptr
-        header(const detail::chunktype &ghex_msg_chunk, void* tag)
+        header(const detail::chunktype &ghex_msg_chunk, void* owner)
         {
 /*
             uint32_t *buffer =
@@ -193,7 +193,8 @@ namespace libfabric
             }
 
             // can we send main message inside the header
-            if (ghex_msg_chunk.size_ <=
+            // GHEX DISABLED TEMPORARILY PIGGYBACKING
+            if (0 && ghex_msg_chunk.size_ <=
                 (data_size_ - chunkbytes - sizeof(detail::message_info) -
                     sizeof(detail::rma_info)))
             {
@@ -225,7 +226,7 @@ namespace libfabric
             if ((message_header.flags & zerocopy_flag) != 0)
             {
                 auto ptr = rma_info_ptr();
-                ptr->tag = reinterpret_cast<uint64_t>(tag);
+                ptr->owner = reinterpret_cast<uint64_t>(owner);
             }
 
             head_deb.debug(hpx::debug::str<>("Header"), *this);
@@ -261,7 +262,7 @@ namespace libfabric
                << hpx::debug::dec<>((h.chunk_ptr() ? h.num_index_chunks() : 0))
                << ")"
                << " piggyback " << hpx::debug::dec<>((h.message_piggy_back()))
-               << " tag " << hpx::debug::ptr(h.tag());
+               << " owner " << hpx::debug::ptr(h.owner());
             return os;
         }
 
@@ -474,10 +475,10 @@ namespace libfabric
             return message_ptr() != nullptr;
         }
 
-        inline uint64_t tag() const
+        inline uint64_t owner() const
         {
             auto ptr = rma_info_ptr();
-            return ptr ? ptr->tag : 0;
+            return ptr ? ptr->owner : 0;
         }
 
         inline uint32_t message_size() const
@@ -494,7 +495,7 @@ namespace libfabric
             {
                 detail::message_chunk const* mc = message_chunk_ptr();
                 head_deb.debug(hpx::debug::str<>("chunk free size"),
-                    hpx::debug::dec<>(mc->message_rma.size_), "offset was ",
+                    hpx::debug::dec<>(mc->message_rma.size_), "offset was",
                     hpx::debug::dec<>(message_info_offset()));
                 return mc->message_rma.size_;
             }

@@ -38,6 +38,65 @@ namespace gridtools {
 
                 struct status_t {};
 
+                namespace impl
+                {
+                    template <typename T>
+                    class by_value
+                    {
+                    private:
+                        T _x;
+
+                    public:
+                        template <typename TFwd>
+                        by_value(TFwd&& x) : _x{std::forward<TFwd>(x)}
+                        {
+                        }
+
+                        auto&       get() &      { return _x; }
+                        const auto& get() const& { return _x; }
+                        auto        get() &&     { return std::move(_x); }
+                    };
+
+                    template <typename T>
+                    class by_ref
+                    {
+                    private:
+                        std::reference_wrapper<T> _x;
+
+                    public:
+                        by_ref(T& x) : _x{x}
+                        {
+                        }
+
+                        auto&       get() &      { return _x.get(); }
+                        const auto& get() const& { return _x.get(); }
+                        auto        get() &&     { return std::move(_x.get()); }
+                    };
+
+                }
+
+                // Unspecialized version: stores a `T` instance by value.
+                template <typename T>
+                struct fwd_capture_wrapper : impl::by_value<T>
+                {
+                    // "Inherit" constructors.
+                    using impl::by_value<T>::by_value;
+                };
+
+                template <typename T>
+                auto fwd_capture(T&& x)
+                {
+                    return fwd_capture_wrapper<T>(std::forward<T>(x));
+                }
+
+                // Specialized version: stores a `T` reference.
+                template <typename T>
+                struct fwd_capture_wrapper<T&> : impl::by_ref<T>
+                {
+                    // "Inherit" constructors.
+                    using impl::by_ref<T>::by_ref;
+                };
+
                 /** @brief common data which is shared by all communicators. This class is thread safe.
                   * @tparam ThreadPrimitives The thread primitives type */
                 template<typename ThreadPrimitives>
@@ -45,7 +104,7 @@ namespace gridtools {
                     using thread_primitives_type = ThreadPrimitives;
                     using transport_context_type = transport_context<libfabric_tag, ThreadPrimitives>;
                     using rank_type = int;
-                    using tag_type = int;
+                    using tag_type = std::uint64_t;
                     using controller_type = ::ghex::tl::libfabric::controller;
 
                     controller_type        *m_controller;
@@ -73,70 +132,50 @@ namespace gridtools {
                     using tag_type = typename shared_state_type::tag_type;
                     template<typename T>
                     using future = future_t<T>;
-                    using queue_type = ::gridtools::ghex::tl::cb::callback_queue<future<void>, rank_type, tag_type>;
                     using progress_status = gridtools::ghex::tl::cb::progress_status;
                     using controller_shared = std::shared_ptr<::ghex::tl::libfabric::controller>;
 
                     thread_token* m_token_ptr;
-                    queue_type m_send_queue;
-                    queue_type m_recv_queue;
                     int  m_progressed_sends = 0;
                     int  m_progressed_recvs = 0;
+                    int m_progressed_cancels = 0;
 
                     communicator_state(thread_token* t)
                     : m_token_ptr{t}
                     {}
 
                     progress_status progress() {
-                        m_progressed_sends += m_send_queue.progress();
-                        m_progressed_recvs += m_recv_queue.progress();
                         return {
                             std::exchange(m_progressed_sends,0),
                             std::exchange(m_progressed_recvs,0),
-                            std::exchange(m_recv_queue.m_progressed_cancels,0)};
+                            std::exchange(m_progressed_cancels,0)};
                     }
                 };
 
                 /** @brief completion handle returned from callback based communications
                   * @tparam ThreadPrimitives The thread primitives type */
                 template<typename ThreadPrimitives>
-                struct request_cb
+                struct request_cb : public gridtools::ghex::tl::libfabric::request_t
                 {
                     using shared_state_type = shared_communicator_state<ThreadPrimitives>;
                     using state_type        = communicator_state<ThreadPrimitives>;
                     using message_type      = ::gridtools::ghex::tl::cb::any_message;
-                    using tag_type          = int;
+                    using tag_type          = typename shared_state_type::tag_type;
                     using rank_type         = int;
                     template <typename T>
                     using future            = future_t<T>;
                     using completion_type   = ::gridtools::ghex::tl::cb::request;
                     using queue_type = ::gridtools::ghex::tl::cb::callback_queue<future<void>, rank_type, tag_type>;
 
-                    queue_type* m_queue = nullptr;
-                    completion_type m_completed;
+                    using gridtools::ghex::tl::libfabric::request_t::request_t;
+                    using gridtools::ghex::tl::libfabric::request_t::m_controller;
+                    using gridtools::ghex::tl::libfabric::request_t::m_kind;
+                    using gridtools::ghex::tl::libfabric::request_t::m_ready;
 
-                    bool test()
-                    {
-                        if(!m_queue) return true;
-                        if (m_completed.is_ready())
-                        {
-                            m_queue = nullptr;
-                            m_completed.reset();
-                            return true;
-                        }
-                        return false;
-                    }
-
-                    bool cancel()
-                    {
-                        if(!m_queue) return false;
-                        auto res = m_queue->cancel(m_completed.queue_index());
-                        if (res)
-                        {
-                            m_queue = nullptr;
-                            m_completed.reset();
-                        }
-                        return res;
+                    request_cb(const gridtools::ghex::tl::libfabric::request_t &r) {
+                        m_controller = r.m_controller;
+                        m_kind       = r.m_kind;
+                        m_ready      = r.m_ready;
                     }
                 };
 
@@ -153,7 +192,7 @@ namespace gridtools {
                     using thread_token = typename thread_primitives_type::token;
                     using state_type = communicator_state<ThreadPrimitives>;
                     using rank_type = int;
-                    using tag_type = int;
+                    using tag_type = typename shared_state_type::tag_type;
                     using request = request_t;
                     using status = status_t;
                     template<typename T>
@@ -195,20 +234,34 @@ namespace gridtools {
                     template<typename Message>
                     [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag) {
                         FUNC_START_DEBUG_MSG;
-                        // main libfabric controller
-                        auto controller = m_shared_state->m_controller;
 
-                        ::ghex::tl::libfabric::sender *sndr = m_shared_state->m_controller->get_sender(dst);
+                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
+                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
+
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (future)")
+                            , "init", hpx::debug::dec<>(dst)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+
+                        // get main libfabric controller
+                        auto controller = m_shared_state->m_controller;
+                        // get a sender
+                        ::ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
+
                         // create a request
                         std::shared_ptr<bool> result(new bool(false));
                         request req{controller, request_kind::recv, std::move(result)};
-                        // setup a callback to set the future ready when transfer is complete
-                        sndr->async_send(msg, tag, [p=req.m_ready](){
-                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future pre-set");
+
+                        // async send, with callback to set the future ready when transfer is complete
+                        ::ghex::com_deb.debug(hpx::debug::str<>("message_region_owned_ = true"));
+                        sndr->message_region_external_ = true;
+                        sndr->async_send(msg, stag, [p=req.m_ready](){
                             *p = true;
-                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future set");
+                            ::ghex::com_deb.debug(hpx::debug::str<>("Send (future)"), "F(set)");
                         });
+
                         FUNC_END_DEBUG_MSG;
+                        // future constructor will be called with request as param
                         return req;
                     }
 
@@ -220,29 +273,36 @@ namespace gridtools {
                      * @param tag the communication tag
                      * @return a future to test/wait for completion */
                     template<typename Message>
-                    [[nodiscard]] future<void> recv(Message& msg, rank_type dest, tag_type tag)
+                    [[nodiscard]] future<void> recv(Message& msg, rank_type src, tag_type tag)
                     {
                         FUNC_START_DEBUG_MSG;
+
+                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
+                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
+
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (future)")
+                            , "init", hpx::debug::dec<>(src)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                            , "addr", hpx::debug::ptr(msg.data()));
+
                         // main libfabric controller
                         auto controller = m_shared_state->m_controller;
 
-                        // setup a request that is held by the future, the bool 'ready'
-                        // flag has to be a pointer because the future will
-                        // be moved and a reference will go out of scope
+                        // create a request
                         std::shared_ptr<bool> result(new bool(false));
                         request req{controller, request_kind::recv, std::move(result)};
 
-                        // setup a callback that will set the future ready
-                        std::function<void(void)> set_fut_fn = [p=req.m_ready](){
-                            ::ghex::com_deb.debug(hpx::debug::str<>("Send"), "Future pre-set");
-                            *p = true;
-                            ::ghex::com_deb.debug(hpx::debug::str<>("Receive"), "Future set");
-                        };
-
                         // get a receiver object (tagged, with a callback)
                         ::ghex::tl::libfabric::receiver *rcv =
-                                controller->get_tagged_receiver(dest, set_fut_fn);
-                        rcv->pre_post_receive(/*msg, */tag);
+                                controller->get_expected_receiver(src,
+                            [p=req.m_ready](){
+                                *p = true;
+                                ::ghex::com_deb.debug(hpx::debug::str<>("Receive (future)"), "F(set)");
+                            });
+
+                        rcv->pre_post_receive(msg, stag);
+
                         FUNC_END_DEBUG_MSG;
                         return req;
                     }
@@ -268,47 +328,91 @@ namespace gridtools {
                     template<typename CallBack>
                     request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
                     {
-                        auto fut = send(msg, dst, tag);
-                        if (fut.ready())
-                        {
-                            callback(std::move(msg), dst, tag);
-                            ++(m_state->m_progressed_sends);
-                            return {};
-                        }
-                        else
-                        {
-                            return { &m_state->m_send_queue,
-                                m_state->m_send_queue.enqueue(std::move(msg), dst, tag, std::move(fut),
-                                        std::forward<CallBack>(callback))};
-                        }
+                        FUNC_START_DEBUG_MSG;
+
+                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
+                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
+
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
+                            , "init", hpx::debug::dec<>(dst)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+
+                        // get main libfabric controller
+                        auto controller = m_shared_state->m_controller;
+                        // get a sender
+                        ::ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
+                        sndr->message_region_external_ = true;
+
+                        // create a request
+                        std::shared_ptr<bool> result(new bool(false));
+                        request req{controller, request_kind::recv, std::move(result)};
+
+                        const void *data_ptr = msg.data();
+                        std::size_t size = msg.size();
+
+                        auto lambda = [
+                                p=req.m_ready,
+                                callback = std::forward<CallBack>(callback),
+                                msg = std::forward<message_type>(msg),
+                                dst, tag
+                                ]() mutable
+                           {
+                               *p = true;
+                               ::ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
+                                    , "F(set)", hpx::debug::dec<>(dst));
+                               callback(std::move(msg), dst, tag);
+                           };
+
+                        // perform a send with the callback for when transfer is complete
+                        sndr->async_send(data_ptr, size, stag, std::move(lambda));
+                        FUNC_END_DEBUG_MSG;
+                        return req;
                     }
 
-                   /** @brief receive a message and get notified with a callback when the communication has finished.
-                     * The ownership of the message is transferred to this communicator and it is safe to destroy the
-                     * message at the caller's site.
-                     * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                     * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
-                     * @param msg r-value reference to any_message instance
-                     * @param src the source rank
-                     * @param tag the communication tag
-                     * @param callback a callback instance
-                     * @return a request to test (but not wait) for completion */
                     template<typename CallBack>
                     request_cb_type recv(message_type&& msg, rank_type src, tag_type tag, CallBack&& callback)
                     {
-                        auto fut = recv(msg, src, tag);
-                        if (fut.ready())
-                        {
-                            callback(std::move(msg), src, tag);
-                            ++(m_state->m_progressed_recvs);
-                            return {};
-                        }
-                        else
-                        {
-                            return { &m_state->m_recv_queue,
-                                m_state->m_recv_queue.enqueue(std::move(msg), src, tag, std::move(fut),
-                                        std::forward<CallBack>(callback))};
-                        }
+                        ::ghex::com_deb.scope("request_cb_type recv");
+
+                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
+                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
+
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
+                            , "init", hpx::debug::dec<>(src)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+
+                        // main libfabric controller
+                        auto controller = m_shared_state->m_controller;
+
+                        // create a request
+                        std::shared_ptr<bool> result(new bool(false));
+                        request req{controller, request_kind::recv, std::move(result)};
+
+                        // setup a callback that will set the future ready
+                        // move the message into the callback function
+                        auto lambda = [
+                                p=req.m_ready,
+                                callback = std::forward<CallBack>(callback),
+                                msg = std::move<message_type>(std::forward<message_type>(msg)),
+                                src, tag
+                                ]() mutable
+                           {
+                               *p = true;
+                               ::ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
+                                    , "F(set)", hpx::debug::dec<>(src));
+                                // move the message into the user's final callback
+                               callback(std::move(msg), src, tag);
+                           };
+
+                        // get a receiver object (tagged, with a callback)
+                        ::ghex::tl::libfabric::receiver *rcv =
+                                controller->get_expected_receiver(src, std::move(lambda));
+
+                        rcv->pre_post_receive(msg, stag);
+                        FUNC_END_DEBUG_MSG;
+                        return req;
                     }
 
                     void barrier() {

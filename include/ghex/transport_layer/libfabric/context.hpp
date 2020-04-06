@@ -40,6 +40,7 @@ namespace gridtools {
             shared_state_type m_shared_state;
             state_type m_state;
             state_vector m_states;
+            std::uintptr_t ctag_;
 
             using controller_type = ::ghex::tl::libfabric::controller;
             controller_type  *controller_;
@@ -74,6 +75,18 @@ namespace gridtools {
                 controller_ = init_libfabric_controller(m_rank, m_size, mpi_comm);
                 m_shared_state.m_controller = controller_;
                 controller_->startup();
+                //
+                const int tag_value = 65535;
+                if (m_rank==0) {
+                    ctag_ = reinterpret_cast<std::uintptr_t>(this);
+                    for (int i=1; i<m_size; ++i) {
+                        MPI_Send(&ctag_, sizeof(std::uintptr_t), MPI_CHAR, i, tag_value, m_comm);
+                    }
+                }
+                else {
+                    MPI_Status status;
+                    MPI_Recv(&ctag_, sizeof(std::uintptr_t), MPI_CHAR, 0, tag_value, m_comm, &status);
+                }
             }
 
             communicator_type get_serial_communicator()
@@ -91,6 +104,10 @@ namespace gridtools {
                 return {&m_shared_state, m_states[t.id()].get()};
             }
 
+            controller_type *get_libfabric_controller()
+            {
+                return m_shared_state.m_controller;
+            }
         };
 
         template<class ThreadPrimitives>

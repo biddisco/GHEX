@@ -167,8 +167,9 @@ auto test_unidirectional_cb(Context& context) {
 
     using comm_type      = std::remove_reference_t<decltype(comm)>;
     using allocator_type = typename comm_type::template allocator_type<unsigned char>;
-    using smsg_type       = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
-    using cb_msg_type     = typename comm_type::message_type;
+    using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
+    using cb_msg_type    = typename comm_type::message_type;
+    using tag_type       = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -182,7 +183,7 @@ auto test_unidirectional_cb(Context& context) {
         auto status = comm.progress();
         EXPECT_EQ(status.num(), 0);
     } else {
-        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, int /* tag */) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, tag_type /* tag */) { arrived = true; });
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         int c = 0;
@@ -215,6 +216,7 @@ auto test_bidirectional_cb(Context& context) {
     using smsg_type       = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
     using comm_type       = std::remove_reference_t<decltype(comm)>;
     using cb_msg_type     = typename comm_type::message_type;
+    using tag_type        = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -224,11 +226,11 @@ auto test_bidirectional_cb(Context& context) {
 
     if ( rank == 0 ) {
         auto fut = comm.send(smsg, 1, 1);
-        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     } else if (rank == 1) {
         auto fut = comm.send(smsg, 0, 2);
-        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     }
 

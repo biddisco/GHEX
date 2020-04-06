@@ -4,6 +4,7 @@
 #include <array>
 #include <bitset>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iomanip>
@@ -73,7 +74,7 @@
 // when the template parameter is false, the optimizer will
 // not produce code and so the impact is nil.
 //
-// static hpx::debug::enable_print<true> spq_deb("SUBJECT");
+// static hpx::debug::enable_print<false> spq_deb("SUBJECT");
 //
 // Later in code you may print information using
 //
@@ -309,7 +310,7 @@ namespace hpx { namespace debug {
             os << " address " << hpx::debug::ptr(p.addr_) << " length "
                << hpx::debug::hex<8>(p.len_) << " CRC32:"
                << hpx::debug::hex<8>(crc32(p.addr_, p.len_)) << "\n";
-            for (size_t i = 0; i < (std::min)(p.len_ / 8, size_t(128)); i++)
+            for (size_t i = 0; i < (std::min)(size_t(std::ceil(p.len_ / 8.0)), size_t(128)); i++)
             {
                 os << hpx::debug::hex<16>(*uintBuf++) << " ";
             }
@@ -475,6 +476,12 @@ namespace hpx { namespace debug {
         }
 
         template <typename... Args>
+        void scope(const Args&... args)
+        {
+            display("<SCO> ", args...);
+        }
+
+        template <typename... Args>
         void trace(const Args&... args)
         {
             display("<TRC> ", args...);
@@ -507,6 +514,30 @@ namespace hpx { namespace debug {
     {
         var.data_ = val;
     }
+
+    template <typename... Args>
+    struct scoped_var
+    {
+        // capture tuple elements by reference - no temp vars in constructor please
+        const char *prefix_;
+        const std::tuple<const Args&...> message_;
+        //
+        scoped_var(const char* p, const Args&... args)
+          : prefix_(p)
+          , message_(args...)
+        {
+            std::stringstream tempstream;
+            detail::tuple_print(tempstream, message_);
+            detail::display("<SCO> ", prefix_, debug::str<>(">> enter <<"), tempstream.str());
+        }
+
+        ~scoped_var()
+        {
+            std::stringstream tempstream;
+            detail::tuple_print(tempstream, message_);
+            detail::display("<SCO> ", prefix_, debug::str<>("<< leave >>"), tempstream.str());
+        }
+    };
 
     template <typename... Args>
     struct timed_var
@@ -602,6 +633,10 @@ namespace hpx { namespace debug {
         {
         }
 
+        template <typename... Args>
+        constexpr void scope(const Args&... args)
+        {
+        }
         template <typename T, typename... Args>
         constexpr bool declare_variable(const Args&...) const
         {
@@ -656,6 +691,12 @@ namespace hpx { namespace debug {
         constexpr void error(const Args&... args) const
         {
             detail::error(prefix_, args...);
+        }
+
+        template <typename... Args>
+        scoped_var<Args...> scope(const Args&... args)
+        {
+            return scoped_var<Args...>(prefix_, args...);
         }
 
         template <typename... T, typename... Args>
@@ -717,6 +758,7 @@ namespace hpx { namespace debug {
         {
             return timed_var<Args...>(delay, args...);
         }
+
     };
 
 }}
