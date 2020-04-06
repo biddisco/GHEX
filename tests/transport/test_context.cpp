@@ -58,10 +58,6 @@ TEST(context, multi) {
         auto msg_1 = comm_1.make_message(size*sizeof(int));
         auto msg_2 = comm_2.make_message(size*sizeof(int));
 
-        std::stringstream temp;
-        temp << "R " << comm_1.rank() << " T1 " << token_1.id() << " T2 " << token_2.id() << std::endl;
-        std::cerr << temp.str();
-
         if (comm_1.rank() == 0) {
             const int payload_offset = 1+token_1.id();
             for (unsigned int i=0; i<size; ++i)
@@ -97,19 +93,11 @@ TEST(context, multi) {
 
 
         if (comm_1.rank() == 0) {
-            std::cerr << "a1 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
-            std::cerr << "a1 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
             while(counter_1 != comm_1.size()-1) { comm_1.progress(); comm_2.progress(); }
-            std::cerr << "a2 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
-            std::cerr << "a2 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
         }
 
         if (comm_2.rank() == 0) {
-            std::cerr << "b1 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
-            std::cerr << "b1 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
             while(counter_2 != comm_2.size()-1) { comm_1.progress(); comm_2.progress(); }
-            std::cerr << "b2 Counter 1 " << std::hex << std::this_thread::get_id() << " is now " << counter_1 << std::endl;
-            std::cerr << "b2 Counter 2 " << std::hex << std::this_thread::get_id() << " is now " << counter_2 << std::endl;
         }
 
         if (comm_2.rank() != 0)

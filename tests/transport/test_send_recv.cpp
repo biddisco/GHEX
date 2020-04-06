@@ -224,10 +224,10 @@ struct recursive_functor {
     std::function<void(msg_type&, int, communicator_type::tag_type)> func;
     // we need a counter here so we can handle immediate callbacks
     int counter = 0;
-
     void operator()(msg_type m, int r, communicator_type::tag_type t) {
         func(m,r,t);
         counter = 0;
+
         auto rr = comm.recv(std::move(m), rank, tag, *this);
         if (counter == 0) {
             ++counter;
@@ -329,8 +329,7 @@ auto test_ring_send_recv_cb_resubmit_disown(CommType& comm, std::size_t buffer_s
     data_ptr = reinterpret_cast<int*>(smsg.data());
     *data_ptr = rank;
 
-
-//    rreq = comm.recv(Factory::make(buffer_size), rpeer_rank, 1, recursive_recv_callback);
+    rreq = comm.recv(Factory::make(buffer_size), rpeer_rank, 1, recursive_recv_callback);
     for(int i=0; i<NITERS; i++){
         comm.send(smsg, speer_rank, 1).wait();
         while(received<=i) comm.progress();
@@ -356,7 +355,7 @@ TEST(transport, ring_send_recv_cb_resubmit_disown)
     using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
 //    test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+//    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
 //    test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int));
 }
