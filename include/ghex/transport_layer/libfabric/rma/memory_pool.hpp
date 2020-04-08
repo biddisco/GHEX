@@ -295,8 +295,8 @@ namespace rma
                     , *(present.first->second));
                 return (present.first->second);
             }
-            LOG_ERROR_MSG("returning nullptr from region_from_address "
-                << hpx::debug::ptr(addr));
+            pool_deb.error("returning nullptr from region_from_address"
+                , hpx::debug::ptr(addr));
             return nullptr;
         }
 

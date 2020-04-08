@@ -22,11 +22,6 @@
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<true> com_deb("COMMUNI");
-
-#undef FUNC_START_DEBUG_MSG
-#undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::com_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
-#define FUNC_END_DEBUG_MSG   ::ghex::com_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace gridtools {
@@ -224,6 +219,11 @@ namespace gridtools {
                     rank_type size() const noexcept { return m_shared_state->size(); }
                     address_type address() const noexcept { return rank(); }
 
+                    inline std::uint64_t make_tag64(std::uint32_t tag) {
+                        return (std::uint64_t(m_shared_state->m_context->ctag_) << 32) |
+                                (std::uint64_t(tag) & 0xFFFFFFFF);
+                    }
+
                     /** @brief send a message. The message must be kept alive by the caller until the communication is
                      * finished.
                      * @tparam Message a meassage type
@@ -232,16 +232,11 @@ namespace gridtools {
                      * @param tag the communication tag
                      * @return a future to test/wait for completion */
                     template<typename Message>
-                    [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag) {
-                        FUNC_START_DEBUG_MSG;
+                    [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag)
+                    {
+                        ::ghex::com_deb.scope(this, __func__, "(future)");
 
-                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
-                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
-
-                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (future)")
-                            , "init", hpx::debug::dec<>(dst)
-                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
-                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+                        std::uint64_t stag = make_tag64(tag);
 
                         // get main libfabric controller
                         auto controller = m_shared_state->m_controller;
@@ -252,15 +247,23 @@ namespace gridtools {
                         std::shared_ptr<bool> result(new bool(false));
                         request req{controller, request_kind::recv, std::move(result)};
 
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (future)")
+                            , "thisrank", hpx::debug::dec<>(rank())
+                            , "rank", hpx::debug::dec<>(dst)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                            , "stag", hpx::debug::hex<16>(stag)
+                            , "sndr", hpx::debug::ptr(sndr)
+                            , "addr", hpx::debug::ptr(msg.data())
+                            , "size", hpx::debug::hex<6>(msg.size()));
+
                         // async send, with callback to set the future ready when transfer is complete
-                        ::ghex::com_deb.debug(hpx::debug::str<>("message_region_owned_ = true"));
                         sndr->message_region_external_ = true;
                         sndr->async_send(msg, stag, [p=req.m_ready](){
                             *p = true;
                             ::ghex::com_deb.debug(hpx::debug::str<>("Send (future)"), "F(set)");
                         });
 
-                        FUNC_END_DEBUG_MSG;
                         // future constructor will be called with request as param
                         return req;
                     }
@@ -275,16 +278,9 @@ namespace gridtools {
                     template<typename Message>
                     [[nodiscard]] future<void> recv(Message& msg, rank_type src, tag_type tag)
                     {
-                        FUNC_START_DEBUG_MSG;
+                        ::ghex::com_deb.scope(this, __func__, "(future)");
 
-                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
-                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
-
-                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (future)")
-                            , "init", hpx::debug::dec<>(src)
-                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
-                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
-                            , "addr", hpx::debug::ptr(msg.data()));
+                        std::uint64_t stag = make_tag64(tag);
 
                         // main libfabric controller
                         auto controller = m_shared_state->m_controller;
@@ -301,9 +297,18 @@ namespace gridtools {
                                 ::ghex::com_deb.debug(hpx::debug::str<>("Receive (future)"), "F(set)");
                             });
 
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (future)")
+                            , "thisrank", hpx::debug::dec<>(rank())
+                            , "rank", hpx::debug::dec<>(src)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                            , "stag", hpx::debug::hex<16>(stag)
+                            , "recv", hpx::debug::ptr(rcv)
+                            , "addr", hpx::debug::ptr(msg.data())
+                            , "size", hpx::debug::hex<6>(msg.size()));
+
                         rcv->pre_post_receive(msg, stag);
 
-                        FUNC_END_DEBUG_MSG;
                         return req;
                     }
 
@@ -328,15 +333,9 @@ namespace gridtools {
                     template<typename CallBack>
                     request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
                     {
-                        FUNC_START_DEBUG_MSG;
+                        ::ghex::com_deb.scope(this, __func__, "(callback)");
 
-                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
-                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
-
-                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
-                            , "init", hpx::debug::dec<>(dst)
-                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
-                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+                        std::uint64_t stag = make_tag64(tag);
 
                         // get main libfabric controller
                         auto controller = m_shared_state->m_controller;
@@ -364,24 +363,27 @@ namespace gridtools {
                                callback(std::move(msg), dst, tag);
                            };
 
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
+                            , "thisrank", hpx::debug::dec<>(rank())
+                            , "rank", hpx::debug::dec<>(dst)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                            , "stag", hpx::debug::hex<16>(stag)
+                            , "sndr", hpx::debug::ptr(sndr)
+                            , "addr", hpx::debug::ptr(msg.data())
+                            , "size", hpx::debug::hex<6>(msg.size()));
+
                         // perform a send with the callback for when transfer is complete
                         sndr->async_send(data_ptr, size, stag, std::move(lambda));
-                        FUNC_END_DEBUG_MSG;
                         return req;
                     }
 
                     template<typename CallBack>
                     request_cb_type recv(message_type&& msg, rank_type src, tag_type tag, CallBack&& callback)
                     {
-                        ::ghex::com_deb.scope("request_cb_type recv");
+                        ::ghex::com_deb.scope(this, __func__, "(callback)");
 
-                        std::uint64_t stag = (std::uint64_t(tag) << 32) |
-                            (std::uint64_t(m_shared_state->m_context->ctag_) & 0xFFFFFFFF);
-
-                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
-                            , "init", hpx::debug::dec<>(src)
-                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
-                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context));
+                        std::uint64_t stag = make_tag64(tag);
 
                         // main libfabric controller
                         auto controller = m_shared_state->m_controller;
@@ -410,8 +412,17 @@ namespace gridtools {
                         ::ghex::tl::libfabric::receiver *rcv =
                                 controller->get_expected_receiver(src, std::move(lambda));
 
+                        ::ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
+                            , "thisrank", hpx::debug::dec<>(rank())
+                            , "rank", hpx::debug::dec<>(src)
+                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                            , "stag", hpx::debug::hex<16>(stag)
+                            , "recv", hpx::debug::ptr(rcv)
+                            , "addr", hpx::debug::ptr(msg.data())
+                            , "size", hpx::debug::hex<6>(msg.size()));
+
                         rcv->pre_post_receive(msg, stag);
-                        FUNC_END_DEBUG_MSG;
                         return req;
                     }
 

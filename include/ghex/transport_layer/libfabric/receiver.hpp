@@ -20,11 +20,6 @@
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<true> recv_deb("RECEIVE");
-
-#undef FUNC_START_DEBUG_MSG
-#undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::recv_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
-#define FUNC_END_DEBUG_MSG   ::ghex::recv_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace ghex {
@@ -73,7 +68,7 @@ namespace libfabric
         // dumping counters
         void receiver::cleanup()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
             rma_receiver *rcv = nullptr;
 
             while (receiver::rma_receivers_.pop(rcv))
@@ -83,7 +78,6 @@ namespace libfabric
                     , hpx::debug::dec<>(--active_rma_receivers_));
                 delete rcv;
             }
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -98,13 +92,13 @@ namespace libfabric
         // This function is only called when lifabric is used for bootstrapping
         void receiver::handle_new_connection(controller *controller, std::uint64_t len)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
 
             // this should only ever occurr on an unexpected message
             HPX_ASSERT(tag_ == std::uint64_t(-1));
 
             recv_deb.debug(hpx::debug::str<>("new connection")
-                , "length", hpx::debug::dec<>(len)
+                , "length", hpx::debug::hex<6>(len)
                 , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
 
             // We save the received region and swap it with a newly allocated one
@@ -114,9 +108,9 @@ namespace libfabric
             // by default : this will (p)repost the receive buffer
             postprocess_handler_(this);
 
-            recv_deb.trace(hpx::debug::str<>("header")
-                ,  hpx::debug::mem_crc32(region->get_address()
-                ,len, "Header region (new connection)"));
+//            recv_deb.trace(hpx::debug::str<>("header")
+//                ,  hpx::debug::mem_crc32(region->get_address()
+//                ,len, "Header region (new connection)"));
 
             rma_receiver::header_type *header =
                     reinterpret_cast<rma_receiver::header_type*>(region->get_address());
@@ -139,8 +133,6 @@ namespace libfabric
             // with the fi_addr address vector table index (rank)
             source_addr = controller->insert_address(source_addr);
             controller->update_bootstrap_connections();
-
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -148,7 +140,7 @@ namespace libfabric
         // rma transfers are needed
         rma_receiver *receiver::create_rma_receiver(bool push_to_stack)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
             // this is the rma_receiver completion handling function
             // it just returns the rma_receiver back to the stack
             auto f = [](rma_receiver* recv)
@@ -186,14 +178,13 @@ namespace libfabric
             else {
                 return recv;
             }
-            FUNC_END_DEBUG_MSG;
             return nullptr;
         }
 
         // --------------------------------------------------------------------
         rma_receiver* receiver::get_rma_receiver(fi_addr_t const& src_addr)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(this, __func__);
             rma_receiver *recv = nullptr;
             // cannot yield here - might be called from background thread
             if (!receiver::rma_receivers_.pop(recv)) {
@@ -213,7 +204,6 @@ namespace libfabric
             recv->header_         = nullptr;
             recv->rma_count_      = 0;
             recv->chunk_fetch_    = false;
-            FUNC_END_DEBUG_MSG;
             return recv;
         }
 
@@ -224,7 +214,7 @@ namespace libfabric
         // this function returns 1 if
         int receiver::handle_recv(fi_addr_t const& src_addr, std::uint64_t len)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
             static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
                 "sizeof(std::uint64_t) != sizeof(std::size_t)");
 
@@ -246,7 +236,6 @@ namespace libfabric
                 recv_deb.debug(hpx::debug::str<>("RMA ack")
                     , hpx::debug::ptr(snd));
                 ++acks_received_;
-                FUNC_END_DEBUG_MSG;
                 return snd->handle_message_completion_ack();
             }
 
@@ -262,7 +251,6 @@ namespace libfabric
             // we dispatch our work to our rma_receiver once it completed the
             // prior message. The saved region is passed to the rma handler
             ++messages_handled_;            
-            FUNC_END_DEBUG_MSG;
             return recv->read_message(region, src_addr);
         }
 
@@ -272,7 +260,7 @@ namespace libfabric
         // the owning receiver is called to handle processing of the buffer
         void receiver::pre_post_receive(uint64_t tag)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
             //
             tag_ = tag;
             void *desc = header_region_->get_local_key();
@@ -281,7 +269,8 @@ namespace libfabric
                 , *header_region_
                 , "context" , hpx::debug::ptr(this)
                 , "tag", hpx::debug::hex<16>(tag_)
-                , "pre-posted" , hpx::debug::dec<>(++receives_pre_posted_));
+                , "pre-posted" , hpx::debug::dec<>(++receives_pre_posted_)
+                , "ghex region", ghex_region_);
 
             // this should never actually return true and yield
             bool ok = false;
@@ -314,7 +303,6 @@ namespace libfabric
                     throw fabric_error(int(ret), "pp_post_rx");
                 }
             }
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -324,12 +312,19 @@ namespace libfabric
         template <typename Message>
         void receiver::pre_post_receive(Message &msg, uint64_t tag)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::recv_deb.scope(__func__);
             //
             ghex_region_ = dynamic_cast<region_type*>(
                         memory_pool_->region_from_address(msg.data()));
+
+            bool ghex_region_temp_ = false;
+            if (ghex_region_ == nullptr) {
+                ghex_region_temp_ = true;
+                ghex_region_ = memory_pool_->register_temporary_region(msg.data(), msg.size());
+            }
+            ghex_region_->set_message_length(msg.size());
+            recv_deb.debug(hpx::debug::str<>("ghex region"), *ghex_region_);
             pre_post_receive(tag);
-            FUNC_END_DEBUG_MSG;
         }
 
 

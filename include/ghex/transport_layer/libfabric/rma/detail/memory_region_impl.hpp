@@ -90,7 +90,7 @@ namespace detail
             void *buffer = new char[length];
             if (buffer != nullptr) {
                 memr_deb.trace(hpx::debug::str<>("allocated malloc OK")
-                    , hpx::debug::hex<4>(length));
+                    , hpx::debug::hex<6>(length));
             }
             address_    = static_cast<char*>(buffer);
             base_addr_  = static_cast<char*>(buffer);

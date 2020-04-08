@@ -43,7 +43,7 @@
 #define LOG_TIMED_MSG(name, level, delay, x)
 #define LOG_TIMED_BLOCK(name, level, delay, x)
 #define LOG_ERROR_MSG(x)                                   \
-    std::cout << "00: <ERROR> " << x << " " << __FILE__    \
+    std::cout << "00: <ERR> " << x << " " << __FILE__    \
               << " " << std::dec << __LINE__ << std::endl;
 #define LOG_FATAL_MSG(x) LOG_ERROR_MSG(x)
 
@@ -308,7 +308,7 @@ namespace hpx { namespace debug {
             const uint64_t* uintBuf = static_cast<const uint64_t*>(p.addr_);
             os << "Memory:";
             os << " address " << hpx::debug::ptr(p.addr_) << " length "
-               << hpx::debug::hex<8>(p.len_) << " CRC32:"
+               << hpx::debug::hex<6>(p.len_) << " CRC32:"
                << hpx::debug::hex<8>(crc32(p.addr_, p.len_)) << "\n";
             for (size_t i = 0; i < (std::min)(size_t(std::ceil(p.len_ / 8.0)), size_t(128)); i++)
             {
@@ -345,7 +345,7 @@ namespace hpx { namespace debug {
             static void print(std::ostream& os, const TupleType& t)
             {
                 tuple_printer<TupleType, N - 1>::print(os, t);
-                os << ", " << std::get<N - 1>(t);
+                os << " " << std::get<N - 1>(t);
             }
         };
 

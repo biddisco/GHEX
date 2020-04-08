@@ -29,12 +29,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> mps_deb("MPSTACK");
-
-#undef FUNC_START_DEBUG_MSG
-#undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ghex::mps_deb.debug(hpx::debug::str<>("*** Enter ") , __func__)
-#define FUNC_END_DEBUG_MSG   ghex::mps_deb.debug(hpx::debug::str<>("### Exit  ") , __func__)
+    static hpx::debug::enable_print<false> mps_deb("MPSTACK");
 }
 
 

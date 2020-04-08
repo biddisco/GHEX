@@ -78,11 +78,6 @@
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<true> cnt_deb("CONTROL");
-
-#undef FUNC_START_DEBUG_MSG
-#undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ghex::cnt_deb.debug(hpx::debug::str<>("*** Enter ") , __func__)
-#define FUNC_END_DEBUG_MSG   ghex::cnt_deb.debug(hpx::debug::str<>("### Exit  ") , __func__)
 }
 
 namespace ghex {
@@ -204,7 +199,7 @@ namespace libfabric
           , m_comm_(mpi_comm)
         {
             std::cout.setf(std::ios::unitbuf);
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             open_fabric(provider, domain, endpoint);
 
             // setup a passive listener, or an active RDM endpoint
@@ -235,14 +230,13 @@ namespace libfabric
                 }
             }
 #endif
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
         // clean up all resources
         ~controller()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             unsigned int messages_handled_ = 0;
             unsigned int acks_received_    = 0;
             unsigned int msg_plain_        = 0;
@@ -302,7 +296,6 @@ namespace libfabric
             // clean up
             cnt_deb.debug(hpx::debug::str<>("freeing fabric_info"));
             fi_freeinfo(fabric_info_);
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -404,7 +397,7 @@ namespace libfabric
         void open_fabric(std::string const& provider, std::string const& domain,
             std::string const& endpoint_type)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             struct fi_info *fabric_hints_ = fi_allocinfo();
             if (!fabric_hints_) {
                 throw fabric_error(-1, "Failed to allocate fabric hints");
@@ -439,7 +432,8 @@ namespace libfabric
             }
             //
             fabric_hints_->caps        = FI_MSG | FI_RMA | FI_SOURCE | /*FI_SOURCE_ERR |*/
-                FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT;
+                FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT |
+                FI_DIRECTED_RECV;
 #elif defined(GHEX_LIBFABRIC_GNI)
             fabric_hints_->caps                   = FI_MSG | FI_RMA | FI_SOURCE |
                 FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT;
@@ -510,14 +504,13 @@ namespace libfabric
             _set_disable_registration();
 
             fi_freeinfo(fabric_hints_);
-            FUNC_END_DEBUG_MSG;
         }
 
         // -------------------------------------------------------------------
         // create endpoint and get ready for possible communications
         void startup()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             // only allow one thread to startup the controller
             static std::atomic_flag initialized = ATOMIC_FLAG_INIT;
             if (initialized.test_and_set()) return;
@@ -569,8 +562,6 @@ namespace libfabric
                 // put the new receiver on the free list
                 expected_receivers_.push(rcv);
             }
-
-            FUNC_END_DEBUG_MSG;
         }
 
         receiver *new_expected_receiver()
@@ -580,7 +571,7 @@ namespace libfabric
             auto handler = [this](receiver* rcv)
                 {
                     --expected_receivers_in_use_;
-                    cnt_deb.debug(hpx::debug::str<>("new")
+                    cnt_deb.debug(hpx::debug::str<>("recycle")
                                   , "expected_receiver"
                                   , hpx::debug::ptr(rcv)
                                   , hpx::debug::dec<>(expected_receivers_in_use_));
@@ -755,14 +746,13 @@ namespace libfabric
                 }
                 cnt_deb.debug(hpx::debug::str<>("raw address data") , temp2.str().c_str());
             };
-            FUNC_END_DEBUG_MSG;
             return locality(local_addr);
         }
 
         // --------------------------------------------------------------------
         void new_endpoint_active(struct fi_info *info, struct fid_ep **new_endpoint)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             // create an 'active' endpoint that can be used for sending/receiving
             cnt_deb.debug(hpx::debug::str<>("Active endpoint"));
             cnt_deb.debug(hpx::debug::str<>("Got info mode") , (info->mode & FI_NOTIFY_FLAGS_ONLY));
@@ -810,8 +800,6 @@ namespace libfabric
                 , hpx::debug::ptr(endpoint));
             ret = fi_enable(endpoint);
             if (ret) throw fabric_error(ret, "fi_enable");
-
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -819,7 +807,7 @@ namespace libfabric
         // from agas and insert each one into the address vector
         void initialize_localities()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
 #ifndef GHEX_LIBFABRIC_HAVE_BOOTSTRAPPING
             cnt_deb.debug(hpx::debug::str<>("initialize_localities")
                 , m_size_ , " localities");
@@ -831,7 +819,6 @@ namespace libfabric
             debug_print_av_vector();
 #endif
             cnt_deb.debug(hpx::debug::str<>("Done localities"));
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -965,7 +952,7 @@ namespace libfabric
                     , fi_tostr(&entry.flags, FI_TYPE_OP_FLAGS)
                     , "(" , hpx::debug::dec<>(entry.flags) , ")"
                     , "context" , hpx::debug::ptr(entry.op_context)
-                    , "length" , hpx::debug::hex<8>(entry.len));
+                    , "length" , hpx::debug::hex<6>(entry.len));
                 if (entry.flags & FI_RMA) {
                     cnt_deb.debug(hpx::debug::str<>("Completion")
                         , "txcq RMA"
@@ -1063,7 +1050,7 @@ namespace libfabric
                     , "(" , hpx::debug::dec<>(entry.flags) , ")"
                     , "source"  , hpx::debug::dec<3>(src_addr)
                     , "context" , hpx::debug::ptr(entry.op_context)
-                    , "length"  , hpx::debug::hex<8>(entry.len));
+                    , "length"  , hpx::debug::hex<6>(entry.len));
                 if (src_addr == FI_ADDR_NOTAVAIL)
                 {
                     cnt_deb.debug(hpx::debug::str<>("New connection?")
@@ -1136,7 +1123,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         void create_completion_queues(struct fi_info *info, int N)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
 
             // only one thread must be allowed to create queues,
             // and it is only required once
@@ -1187,7 +1174,6 @@ namespace libfabric
                 ret = fi_av_open(fabric_domain_, &av_attr, &av_, nullptr);
                 if (ret) throw fabric_error(ret, "fi_av_open");
             }
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -1218,7 +1204,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         libfabric::locality insert_address(const libfabric::locality &address)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::cnt_deb.scope(__func__);
             cnt_deb.trace(hpx::debug::str<>("inserting AV"), iplocality(address));
             fi_addr_t fi_addr = 0xffffffff;
             int ret = fi_av_insert(av_, address.fabric_data(), 1, &fi_addr, 0, nullptr);
@@ -1235,7 +1221,6 @@ namespace libfabric
                           , "rank" , hpx::debug::dec<>(fi_addr)
                           , iplocality(new_locality)
                           , "fi_addr" , hpx::debug::hex<4>(fi_addr));
-            FUNC_END_DEBUG_MSG;
             return new_locality;
         }
     };

@@ -29,10 +29,6 @@
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<true> send_deb("SENDER ");
-#undef FUNC_START_DEBUG_MSG
-#undef FUNC_END_DEBUG_MSG
-#define FUNC_START_DEBUG_MSG ::ghex::send_deb.debug(hpx::debug::str<>("*** Enter") , __func__)
-#define FUNC_END_DEBUG_MSG   ::ghex::send_deb.debug(hpx::debug::str<>("### Exit ") , __func__)
 }
 
 namespace ghex {
@@ -89,9 +85,8 @@ namespace libfabric
         // --------------------------------------------------------------------
         ~sender()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::send_deb.scope(__func__);
             memory_pool_->deallocate(header_region_);
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -113,7 +108,7 @@ namespace libfabric
                         uint64_t tag,
                         Callback &&cb_fn)
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::send_deb.scope(__func__);
             HPX_ASSERT(message_region_ == nullptr);
             HPX_ASSERT(completion_count_ == 0);
 
@@ -198,15 +193,15 @@ namespace libfabric
                     , "tag", hpx::debug::hex<16>(tag)
                     , "Main message is piggybacked");
 
-                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                    , hpx::debug::mem_crc32(header_region_->get_address()
-                    , header_region_->get_message_length()
-                    , "Header region (send piggyback)"));
+//                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
+//                    , hpx::debug::mem_crc32(header_region_->get_address()
+//                    , header_region_->get_message_length()
+//                    , "Header region (send piggyback)"));
 
-                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                    , hpx::debug::mem_crc32(message_region_->get_address()
-                    , message_region_->get_message_length()
-                    , "Message region (send piggyback)"));
+//                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
+//                    , hpx::debug::mem_crc32(message_region_->get_address()
+//                    , message_region_->get_message_length()
+//                    , "Message region (send piggyback)"));
 
                 // send 2 regions as one message, goes into one receive
                 bool ok = false;
@@ -250,18 +245,18 @@ namespace libfabric
                 send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                     , "tag", hpx::debug::hex<16>(tag)
                     , "message region NOT piggybacked"
-                    , hpx::debug::hex<>(size)
+                    , hpx::debug::hex<6>(size)
                     , *message_region_);
 
-                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                    , hpx::debug::mem_crc32(header_region_->get_address()
-                    , header_region_->get_message_length()
-                    , "Header region (pre-send)"));
+//                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
+//                    , hpx::debug::mem_crc32(header_region_->get_address()
+//                    , header_region_->get_message_length()
+//                    , "Header region (pre-send)"));
 
-                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
-                    , hpx::debug::mem_crc32(message_region_->get_address()
-                    , message_region_->get_message_length()
-                    , "Message region (send for rma fetch)"));
+//                send_deb.trace(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
+//                    , hpx::debug::mem_crc32(message_region_->get_address()
+//                    , message_region_->get_message_length()
+//                    , "Message region (send for rma fetch)"));
 
                 bool ok = false;
                 while (!ok) {
@@ -293,8 +288,6 @@ namespace libfabric
                     }
                 }
             }
-
-            FUNC_END_DEBUG_MSG;
         }
 
         // --------------------------------------------------------------------
@@ -313,13 +306,12 @@ namespace libfabric
         // Called when a send completes
         int handle_send_completion()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::send_deb.scope(__func__);
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "handle_send_completion"
                 , "tag", hpx::debug::hex<16>(send_tag_)
                 , "RMA regions" , hpx::debug::dec<>(rma_regions_.size())
                 , "completion count" , hpx::debug::dec<>(completion_count_));
-            FUNC_END_DEBUG_MSG;
             return cleanup();
         }
 
@@ -328,13 +320,12 @@ namespace libfabric
         // we can release resources
         int handle_message_completion_ack()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::send_deb.scope(__func__);
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "handle_message_completion_ack"
                 , "RMA regions" , hpx::debug::dec<>(rma_regions_.size())
                 , "completion count" , hpx::debug::dec<>(completion_count_));
             ++acks_received_;
-            FUNC_END_DEBUG_MSG;
             return cleanup();
         }
 
@@ -345,7 +336,7 @@ namespace libfabric
         // user callback is triggered
         int cleanup()
         {
-            FUNC_START_DEBUG_MSG;
+            ghex::send_deb.scope(__func__);
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "decrementing completion_count from", hpx::debug::dec<>(completion_count_));
 
@@ -393,7 +384,6 @@ namespace libfabric
             if (postprocess_handler_) postprocess_handler_(this);
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "completed cleanup/postprocess_handler");
-            FUNC_END_DEBUG_MSG;
             return 1;
         }
 
