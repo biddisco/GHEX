@@ -133,11 +133,13 @@ auto test_bidirectional(Context& context) {
     typename comm_type::template future<void> rfut;
 
     if ( rank == 0 ) {
-        comm.send(smsg, 1, 1).get();
+        auto f = comm.send(smsg, 1, 1);
         rfut = comm.recv(rmsg, 1, 2);
+        f.get();
     } else if (rank == 1) {
-        comm.send(smsg, 0, 2).get();
+        auto f = comm.send(smsg, 0, 2);
         rfut = comm.recv(rmsg, 0, 1);
+        f.get();
     }
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
