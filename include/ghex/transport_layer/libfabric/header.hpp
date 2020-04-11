@@ -15,7 +15,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> head_deb("HEADER_");
+    static hpx::debug::enable_print<false> head_deb("HEADER_");
 }
 
 // A generic header structure that can be used by parcelports

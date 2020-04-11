@@ -75,7 +75,7 @@ namespace detail
         // ------------------------------------------------------------------------
         bool allocate_pool()
         {
-            mps_deb.trace(PoolType::desc(), "Allocating"
+            mps_deb.trace(hpx::debug::str<>(PoolType::desc()), "Allocating"
                , "ChunkSize", hexuint32(ChunkSize)
                , "num_chunks", hpx::debug::dec<>(MaxChunks)
                , "total", hexuint32(ChunkSize*MaxChunks));
@@ -98,7 +98,7 @@ namespace detail
                     ChunkSize,
                     region_type::BLOCK_PARTIAL
                 );
-                mps_deb.trace(PoolType::desc(), "Allocate Block"
+                mps_deb.trace(hpx::debug::str<>(PoolType::desc()), "Allocate Block"
                    , hpx::debug::dec<>(i)
                    , region_list_[i]);
                 // push the pointer onto our stack
@@ -113,7 +113,7 @@ namespace detail
         void DeallocatePool()
         {
             if (in_use_!=0) {
-                mps_deb.trace(PoolType::desc()
+                mps_deb.trace(hpx::debug::str<>(PoolType::desc())
                    , "Deallocating free_list : Not all blocks were returned"
                    , "refcounts", hpx::debug::dec<>(in_use_));
             }
@@ -142,13 +142,13 @@ namespace detail
                 region_set_.erase(region);
             }
 #endif
-            mps_deb.trace(PoolType::desc(), "Push block", *region
+            mps_deb.trace(hpx::debug::str<>(PoolType::desc()), "Push block", *region
                , "Used", hpx::debug::dec<>(in_use_-1)
                , "Accesses", hpx::debug::dec<>(accesses_));
 
             LOG_EXCLUSIVE(
                 uintptr_t val = uintptr_t(region->get_address());
-                mps_deb.trace(PoolType::desc()
+                mps_deb.trace(hpx::debug::str<>(PoolType::desc())
                    , "Writing 0xdeadbeef to region address"
                    , hpx::debug::ptr(val));
                 if (region->get_address()!=nullptr) {
@@ -174,12 +174,13 @@ namespace detail
             // get a block
             region_type *region = nullptr;
             if (!free_list_.pop(region)) {
-                mps_deb.trace(PoolType::desc(), "Error in memory pool pop");
+                mps_deb.trace(hpx::debug::str<>(PoolType::desc())
+                    , "Error in memory pool pop");
                 return nullptr;
             }
             ++in_use_;
             ++accesses_;
-            mps_deb.trace(PoolType::desc(), "Pop block"
+            mps_deb.trace(hpx::debug::str<>(PoolType::desc()), "Pop block"
                , *region
                , "Used", hpx::debug::dec<>(in_use_)
                , "Accesses", hpx::debug::dec<>(accesses_));

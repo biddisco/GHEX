@@ -17,7 +17,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> err_deb("ERROR__");
+    static hpx::debug::enable_print<false> err_deb("ERROR__");
 }
 
 namespace ghex {

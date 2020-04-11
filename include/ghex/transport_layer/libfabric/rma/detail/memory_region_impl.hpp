@@ -16,7 +16,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> memr_deb("MEM_REG");
+    static hpx::debug::enable_print<false> memr_deb("MEM_REG");
 }
 
 namespace ghex {

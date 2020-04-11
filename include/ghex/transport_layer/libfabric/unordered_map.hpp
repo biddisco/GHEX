@@ -351,6 +351,28 @@ namespace concurrent {
             return map_.at(k);
         };
 
+        //
+        // Debugging
+        //
+        std::string debug_map() const
+        {
+            return "";
+//            read_lock lock(mutex_);
+
+//            std::stringstream temp;
+//            int index = 0;
+//            temp << "\n" << this << " Map size is " << this->size() << "\n";
+
+//            for (const_iterator it = begin(); it!=end(); ++it) {
+//                temp << "\t" << index
+//                     << " : key " << it->first
+//                     << " : val " << it->second << "\n";
+//                ++index;
+//            }
+//            return temp.str();
+        }
+
+
     };
 
 }}

@@ -28,7 +28,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> send_deb("SENDER ");
+    static hpx::debug::enable_print<false> send_deb("SENDER ");
 }
 
 namespace ghex {
@@ -85,7 +85,8 @@ namespace libfabric
         // --------------------------------------------------------------------
         ~sender()
         {
-            ghex::send_deb.scope(__func__);
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             memory_pool_->deallocate(header_region_);
         }
 
@@ -108,7 +109,8 @@ namespace libfabric
                         uint64_t tag,
                         Callback &&cb_fn)
         {
-            ghex::send_deb.scope(__func__);
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             HPX_ASSERT(message_region_ == nullptr);
             HPX_ASSERT(completion_count_ == 0);
 
@@ -125,6 +127,7 @@ namespace libfabric
             if (message_region_ == nullptr) {
                 message_region_temp_ = true;
                 message_region_ = memory_pool_->register_temporary_region(data, size);
+                memory_pool_->add_address_to_map(data, message_region_);
             }
 
             detail::chunktype ghex_chunk = detail::create_rma_chunk(
@@ -306,7 +309,8 @@ namespace libfabric
         // Called when a send completes
         int handle_send_completion()
         {
-            ghex::send_deb.scope(__func__);
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "handle_send_completion"
                 , "tag", hpx::debug::hex<16>(send_tag_)
@@ -320,7 +324,8 @@ namespace libfabric
         // we can release resources
         int handle_message_completion_ack()
         {
-            ghex::send_deb.scope(__func__);
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "handle_message_completion_ack"
                 , "RMA regions" , hpx::debug::dec<>(rma_regions_.size())
@@ -336,7 +341,8 @@ namespace libfabric
         // user callback is triggered
         int cleanup()
         {
-            ghex::send_deb.scope(__func__);
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
                 , "decrementing completion_count from", hpx::debug::dec<>(completion_count_));
 

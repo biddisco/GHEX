@@ -28,7 +28,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> loc_deb("LOCALIT");
+    static hpx::debug::enable_print<false> loc_deb("LOCALIT");
 }
 
 namespace ghex {

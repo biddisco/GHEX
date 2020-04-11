@@ -521,6 +521,7 @@ namespace hpx { namespace debug {
         // capture tuple elements by reference - no temp vars in constructor please
         const char *prefix_;
         const std::tuple<const Args&...> message_;
+        std::string buffered_msg;
         //
         scoped_var(const char* p, const Args&... args)
           : prefix_(p)
@@ -528,14 +529,13 @@ namespace hpx { namespace debug {
         {
             std::stringstream tempstream;
             detail::tuple_print(tempstream, message_);
+            buffered_msg = tempstream.str();
             detail::display("<SCO> ", prefix_, debug::str<>(">> enter <<"), tempstream.str());
         }
 
         ~scoped_var()
         {
-            std::stringstream tempstream;
-            detail::tuple_print(tempstream, message_);
-            detail::display("<SCO> ", prefix_, debug::str<>("<< leave >>"), tempstream.str());
+            detail::display("<SCO> ", prefix_, debug::str<>("<< leave >>"), buffered_msg);
         }
     };
 
@@ -634,9 +634,11 @@ namespace hpx { namespace debug {
         }
 
         template <typename... Args>
-        constexpr void scope(const Args&... args)
+        constexpr bool scope(const Args&... args)
         {
+            return true;
         }
+
         template <typename T, typename... Args>
         constexpr bool declare_variable(const Args&...) const
         {

@@ -19,7 +19,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> rma_deb("RMA_RCV");
+    static hpx::debug::enable_print<false> rma_deb("RMA_RCV");
 #define DEB_PREFIX(c) hpx::debug::str<>(c), hpx::debug::ptr(this)
 }
 
@@ -69,7 +69,8 @@ namespace libfabric
         // whether there are zero copy chunks to handle
         int read_message(region_type* region, fi_addr_t const& src_addr)
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             HPX_ASSERT(rma_count_ == 0);
             HPX_ASSERT(header_ == nullptr);
             HPX_ASSERT(header_region_ == nullptr);
@@ -134,7 +135,8 @@ namespace libfabric
         // @TODO insert docs here
         int handle_bootstrap_message()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             rma_deb.debug(DEB_PREFIX("rma_receiver"), "handle bootstrap");
             HPX_ASSERT(header_);
 
@@ -168,7 +170,8 @@ namespace libfabric
         // Process a message that has no zero copy chunks
         void handle_message_no_rma()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             HPX_ASSERT(header_);
             rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "handle piggy backed send without zero copy regions");
@@ -204,7 +207,8 @@ namespace libfabric
         // make an RMA read request
         void handle_message_with_zerocopy_rma()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             chunks_.resize(header_->num_chunks());
             char *chunk_data = header_->chunk_data();
             HPX_ASSERT(chunk_data);
@@ -240,7 +244,8 @@ namespace libfabric
         // the chunks can be identified (and possibly retrieved from the remote node)
         void handle_message_no_chunk_data()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             throw fabric_error(0, "GHEX unsupported handle_message_no_chunk_data");
         }
 
@@ -249,7 +254,8 @@ namespace libfabric
         // and initiate further rma reads if necessary
         int handle_chunks_read_message()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             char *chunk_data = chunk_region_->get_address();
             HPX_ASSERT(chunk_data);
             //
@@ -292,7 +298,8 @@ namespace libfabric
         // user receive callback was triggered
         bool handle_rma_read_completion()
         {
-            ghex::rma_deb.scope(this, __func__);;
+            auto scp = ghex::rma_deb.scope(this, __func__);;
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             HPX_ASSERT(rma_count_ > 0);
             // If we haven't read all chunks, we can return and wait
             // for the other incoming read completions
@@ -300,7 +307,6 @@ namespace libfabric
             {
                 rma_deb.debug(DEB_PREFIX("rma_receiver")
                     , "Not yet read all RMA regions" , hpx::debug::ptr(this));
-                ghex::rma_deb.scope(this, __func__);;
                 return false;
             }
 
@@ -355,7 +361,6 @@ namespace libfabric
 //                    , hpx::debug::mem_crc32(message, message_length, "Message region (recv rma)"));
 
                 // do this after dumping out data as otherwise we lose some debug info
-                std::cout << "ERROR " << message_region_->get_message_length() << " " << header_->message_size() << std::endl;
                 HPX_ASSERT(message_region_->get_message_length() == header_->message_size());
             }
             else
@@ -395,7 +400,8 @@ namespace libfabric
         // of the parcel so that it can release the RMA regions it is holding onto
         void send_rma_complete_ack()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "RMA Get owner" , hpx::debug::hex(header_->owner())
                 , "has completed : injecting 8 byte ack to origin"
@@ -403,11 +409,14 @@ namespace libfabric
 
             ++sent_ack_;
 
-//            region_type *wasted_region =
-//                memory_pool_->allocate_region(sizeof(std::uint64_t));
-//            void *desc[1] = { wasted_region->get_local_key() };
             std::uint64_t owner = this->header_->owner();
-//            std::memcpy(wasted_region->get_address(), &owner, sizeof(std::uint64_t));
+
+#ifdef ACK_USE_REGION
+            region_type *wasted_region =
+                memory_pool_->allocate_region(sizeof(std::uint64_t));
+            void *desc[1] = { wasted_region->get_local_key() };
+            std::memcpy(wasted_region->get_address(), &owner, sizeof(std::uint64_t));
+#endif
 
             bool ok = false;
             while(!ok) {
@@ -420,8 +429,11 @@ namespace libfabric
 //                    , "RMA Get owner" , hpx::debug::hex(header_->owner())
 //                    , "has completed : fi_send 8 byte ack to origin"
 //                    , hpx::debug::dec<3>(src_addr_));
-//                ssize_t ret = fi_send(this->endpoint_, wasted_region->get_address(), sizeof(std::uint64_t), desc, this->src_addr_, this);
+#ifdef ACK_USE_REGION
+                ssize_t ret = fi_send(this->endpoint_, wasted_region->get_address(), sizeof(std::uint64_t), desc, this->src_addr_, this);
+#else
                 ssize_t ret = fi_inject(this->endpoint_, &owner, sizeof(std::uint64_t), this->src_addr_);
+#endif
                 if (ret==0) {
                     ok = true;
                     rma_deb.debug(DEB_PREFIX("rma_receiver")
@@ -439,14 +451,17 @@ namespace libfabric
                     throw fabric_error(ret, "fi_inject ack notification error");
                 }
             }
-//            memory_pool_->deallocate(wasted_region);
+#ifdef ACK_USE_REGION
+            memory_pool_->deallocate(wasted_region);
+#endif
         }
 
         // --------------------------------------------------------------------
         // After message processing is complete, this routine cleans up and resets
         void cleanup_receive()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "cleanup for receiver rma" , hpx::debug::ptr(this));
             //
@@ -486,7 +501,8 @@ namespace libfabric
         // in the chunks_ variable
         void read_chunk_list()
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             if (chunks_.size()==1)
             {
                 // the rma info from the remote node is stored here
@@ -497,6 +513,7 @@ namespace libfabric
 
                 // the local size should match the remote size
                 rma_deb.debug(DEB_PREFIX("rma_receiver")
+                    , "message_region", *message_region_
                     , "local rma size",  hpx::debug::hex<6>(get_region->get_message_length())
                     , "remote rma size", hpx::debug::hex<6>(c.size_));
                 HPX_ASSERT(c.size_ == get_region->get_message_length());
@@ -558,7 +575,8 @@ namespace libfabric
             fi_addr_t /*src_addr*/, region_type *get_region,
             const void *remote_addr, uint64_t rkey)
         {
-            ghex::rma_deb.scope(this, __func__);
+            auto scp = ghex::rma_deb.scope(this, __func__);
+            ghex::rma_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             // post the rdma read/get
             rma_deb.debug(DEB_PREFIX("rma_receiver")
                 , "RMA Get fi_read"
@@ -566,8 +584,8 @@ namespace libfabric
                 , "fi_addr" , hpx::debug::ptr(src_addr_)
                 , "owner" , hpx::debug::ptr(header_->owner())
                 , "local addr" , hpx::debug::ptr(get_region->get_address())
-                , "local key" , hpx::debug::ptr(get_region->get_local_key())
-                , "size" , hpx::debug::hex<6>(get_region->get_message_length())
+                , "size" ,       hpx::debug::hex<6>(get_region->get_message_length())
+                , "local key" ,  hpx::debug::ptr(get_region->get_local_key())
                 , "rkey" , hpx::debug::ptr(rkey)
                 , "remote cpos" , hpx::debug::ptr(remote_addr));
 
@@ -580,48 +598,25 @@ namespace libfabric
                     // write a pattern and dump out data for debugging purposes
                     uint32_t *buffer =
                         reinterpret_cast<uint32_t*>(get_region->get_address());
-                    std::fill(buffer, buffer + get_region->get_size()/4,
+                    rma_deb.trace(DEB_PREFIX("rma_receiver")
+                        , hpx::debug::mem_crc32(get_region->get_address(), get_region->get_message_length(),
+                                  "(RMA GET region (pre-deadc0de))"));
+                    std::fill(buffer, buffer + 1/*buffer + get_region->get_size()/4*/,
                        0xDEADC0DE);
-//                    rma_deb.trace(DEB_PREFIX("rma_receiver")
-//                        , hpx::debug::mem_crc32(get_region->get_address(), get_region->get_message_length(),
-//                                  "(RMA GET region (pre-fi_read))"));
+                    rma_deb.trace(DEB_PREFIX("rma_receiver")
+                        , hpx::debug::mem_crc32(get_region->get_address(), get_region->get_message_length(),
+                                  "(RMA GET region (pre-fi_read))"));
                 }
 
-#ifdef EXPERIMENTAL_RMA_READ_COMPLETION
-                // rma info of local buffer
-                iovec local_regions[1] = {
+                ssize_t ret = fi_read(endpoint_,
                     get_region->get_address(),
-                    get_region->get_message_length()
-                };
-
-                void *local_desc[1] = {
-                    get_region->get_local_key()
-                };
-
-                // rma info of remote buffer
-                fi_rma_iov remote_regions[1] = {
-                    (uint64_t)(remote_addr),
                     get_region->get_message_length(),
-                    rkey
-                };
-
-                fi_msg_rma rma_msg = {
-                    local_regions,
-                    local_desc,
-                    1,
+                    get_region->get_local_key(),
                     src_addr_,
-                    remote_regions,
-                    1,
-                    this,
-                    0
-                };
+                    uint64_t(remote_addr),
+                    rkey,
+                    this);
 
-                ssize_t ret = fi_readmsg(endpoint_, &rma_msg, FI_COMPLETION);
-#else
-                ssize_t ret = fi_read(endpoint_, get_region->get_address(),
-                    get_region->get_message_length(), get_region->get_local_key(),
-                    src_addr_, (uint64_t)(remote_addr), rkey, this);
-#endif
                 if (ret==0) {
                     ok = true;
                 }

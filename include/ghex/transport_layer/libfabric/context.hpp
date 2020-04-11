@@ -21,7 +21,7 @@ namespace gridtools {
         namespace tl {
 
         // cppcheck-suppress ConfigurationNotChecked
-        static hpx::debug::enable_print<true> ctx_deb("CONTEXT");
+        static hpx::debug::enable_print<false> ctx_deb("CONTEXT");
 
         template<typename ThreadPrimitives>
         struct transport_context<libfabric_tag, ThreadPrimitives>

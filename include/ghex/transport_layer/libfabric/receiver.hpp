@@ -19,7 +19,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> recv_deb("RECEIVE");
+    static hpx::debug::enable_print<false> recv_deb("RECEIVE");
 }
 
 namespace ghex {
@@ -68,7 +68,8 @@ namespace libfabric
         // dumping counters
         void receiver::cleanup()
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             rma_receiver *rcv = nullptr;
 
             while (receiver::rma_receivers_.pop(rcv))
@@ -92,7 +93,8 @@ namespace libfabric
         // This function is only called when lifabric is used for bootstrapping
         void receiver::handle_new_connection(controller *controller, std::uint64_t len)
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             // this should only ever occurr on an unexpected message
             HPX_ASSERT(tag_ == std::uint64_t(-1));
@@ -140,7 +142,8 @@ namespace libfabric
         // rma transfers are needed
         rma_receiver *receiver::create_rma_receiver(bool push_to_stack)
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             // this is the rma_receiver completion handling function
             // it just returns the rma_receiver back to the stack
             auto f = [](rma_receiver* recv)
@@ -184,7 +187,8 @@ namespace libfabric
         // --------------------------------------------------------------------
         rma_receiver* receiver::get_rma_receiver(fi_addr_t const& src_addr)
         {
-            ghex::recv_deb.scope(this, __func__);
+            auto scp = ghex::recv_deb.scope(this, __func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             rma_receiver *recv = nullptr;
             // cannot yield here - might be called from background thread
             if (!receiver::rma_receivers_.pop(recv)) {
@@ -214,13 +218,19 @@ namespace libfabric
         // this function returns 1 if
         int receiver::handle_recv(fi_addr_t const& src_addr, std::uint64_t len)
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
                 "sizeof(std::uint64_t) != sizeof(std::size_t)");
 
             recv_deb.debug(hpx::debug::str<>("handling recv")
                 , "tag", hpx::debug::hex<16>(tag_)
                 , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
+
+            if (ghex_region_) {
+                recv_deb.debug(hpx::debug::str<>("ghex region")
+                , "ghex region", *ghex_region_);
+            }
 
             // If we receive a message of 8 bytes, we got a ack and need to handle
             // the tag completion...
@@ -260,7 +270,9 @@ namespace libfabric
         // the owning receiver is called to handle processing of the buffer
         void receiver::pre_post_receive(uint64_t tag)
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+
             //
             tag_ = tag;
             void *desc = header_region_->get_local_key();
@@ -282,10 +294,11 @@ namespace libfabric
                 if (tag==uint64_t(-1)) {
                     ret = fi_recv(this->endpoint_,
                         this->header_region_->get_address(),
-                        this->header_region_->get_size(), desc, 0, this);
+                        this->header_region_->get_size(), desc, FI_ADDR_UNSPEC, this);
                 }
                 else {
                     uint64_t ignore = 0;
+
                     ret = fi_trecv(this->endpoint_,
                         this->header_region_->get_address(),
                         this->header_region_->get_size(), desc, src_addr_, tag, ignore, this);
@@ -310,9 +323,10 @@ namespace libfabric
         // itself as the context, so that when a message is received
         // the owning receiver is called to handle processing of the buffer
         template <typename Message>
-        void receiver::pre_post_receive(Message &msg, uint64_t tag)
+        void receiver::pre_post_receive_msg(Message &msg, uint64_t tag)
         {
-            ghex::recv_deb.scope(__func__);
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             //
             ghex_region_ = dynamic_cast<region_type*>(
                         memory_pool_->region_from_address(msg.data()));
@@ -321,6 +335,7 @@ namespace libfabric
             if (ghex_region_ == nullptr) {
                 ghex_region_temp_ = true;
                 ghex_region_ = memory_pool_->register_temporary_region(msg.data(), msg.size());
+                memory_pool_->add_address_to_map(msg.data(), ghex_region_);
             }
             ghex_region_->set_message_length(msg.size());
             recv_deb.debug(hpx::debug::str<>("ghex region"), *ghex_region_);

@@ -77,7 +77,7 @@
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> cnt_deb("CONTROL");
+    static hpx::debug::enable_print<false> cnt_deb("CONTROL");
 }
 
 namespace ghex {
@@ -199,7 +199,8 @@ namespace libfabric
           , m_comm_(mpi_comm)
         {
             std::cout.setf(std::ios::unitbuf);
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
+
             open_fabric(provider, domain, endpoint);
 
             // setup a passive listener, or an active RDM endpoint
@@ -209,6 +210,8 @@ namespace libfabric
             // Create a memory pool for pinned buffers
             memory_pool_.reset(
                 new rma::memory_pool<libfabric_region_provider>(fabric_domain_));
+
+            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             // initialize rma allocator with a pool
             ghex::tl::libfabric::rma::allocator<unsigned char> allocator{};
@@ -236,7 +239,7 @@ namespace libfabric
         // clean up all resources
         ~controller()
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             unsigned int messages_handled_ = 0;
             unsigned int acks_received_    = 0;
             unsigned int msg_plain_        = 0;
@@ -397,7 +400,7 @@ namespace libfabric
         void open_fabric(std::string const& provider, std::string const& domain,
             std::string const& endpoint_type)
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             struct fi_info *fabric_hints_ = fi_allocinfo();
             if (!fabric_hints_) {
                 throw fabric_error(-1, "Failed to allocate fabric hints");
@@ -510,7 +513,7 @@ namespace libfabric
         // create endpoint and get ready for possible communications
         void startup()
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             // only allow one thread to startup the controller
             static std::atomic_flag initialized = ATOMIC_FLAG_INIT;
             if (initialized.test_and_set()) return;
@@ -752,7 +755,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         void new_endpoint_active(struct fi_info *info, struct fid_ep **new_endpoint)
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             // create an 'active' endpoint that can be used for sending/receiving
             cnt_deb.debug(hpx::debug::str<>("Active endpoint"));
             cnt_deb.debug(hpx::debug::str<>("Got info mode") , (info->mode & FI_NOTIFY_FLAGS_ONLY));
@@ -807,7 +810,7 @@ namespace libfabric
         // from agas and insert each one into the address vector
         void initialize_localities()
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
 #ifndef GHEX_LIBFABRIC_HAVE_BOOTSTRAPPING
             cnt_deb.debug(hpx::debug::str<>("initialize_localities")
                 , m_size_ , " localities");
@@ -914,6 +917,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
         {
+            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             bool retry = true;
             std::uint32_t sends = 0;
             std::uint32_t recvs = 0;
@@ -940,6 +944,7 @@ namespace libfabric
             static auto polling = cnt_deb.make_timer(1
                     , hpx::debug::str<>("poll send queue"));
             cnt_deb.timed(polling);
+            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             fi_cq_msg_entry entry;
             int ret = fi_cq_read(txcq_, &entry, 1);
@@ -1034,6 +1039,7 @@ namespace libfabric
             static auto polling = cnt_deb.make_timer(1
                     , hpx::debug::str<>("poll recv queue"));
             cnt_deb.timed(polling);
+            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             fi_addr_t src_addr;
             fi_cq_msg_entry entry;
@@ -1123,7 +1129,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         void create_completion_queues(struct fi_info *info, int N)
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
 
             // only one thread must be allowed to create queues,
             // and it is only required once
@@ -1204,7 +1210,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         libfabric::locality insert_address(const libfabric::locality &address)
         {
-            ghex::cnt_deb.scope(__func__);
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             cnt_deb.trace(hpx::debug::str<>("inserting AV"), iplocality(address));
             fi_addr_t fi_addr = 0xffffffff;
             int ret = fi_av_insert(av_, address.fabric_data(), 1, &fi_addr, 0, nullptr);

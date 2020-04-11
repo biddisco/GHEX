@@ -68,7 +68,7 @@ namespace libfabric
         void pre_post_receive(uint64_t tag);
 
         template <typename Message>
-        void pre_post_receive(Message &msg, uint64_t tag);
+        void pre_post_receive_msg(Message &msg, uint64_t tag);
 
         // --------------------------------------------------------------------
         // when a pre-posted receive completes, and rma transfers are needed

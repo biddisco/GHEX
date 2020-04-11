@@ -54,7 +54,7 @@ static_assert ( GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE<RDMA_POOL_MEDIUM_CHUNK_SIZE ,
 
 namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<true> pool_deb("MEMPOOL");
+    static hpx::debug::enable_print<false> pool_deb("MEMPOOL");
 }
 
 namespace ghex {
