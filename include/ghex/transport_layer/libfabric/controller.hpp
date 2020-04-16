@@ -438,8 +438,9 @@ namespace libfabric
                 FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT |
                 FI_DIRECTED_RECV;
 #elif defined(GHEX_LIBFABRIC_GNI)
-            fabric_hints_->caps                   = FI_MSG | FI_RMA | FI_SOURCE |
-                FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT;
+            fabric_hints_->caps        = FI_MSG | FI_RMA | FI_SOURCE |
+                FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT |
+                FI_DIRECTED_RECV;
 #endif
             fabric_hints_->mode                   = FI_CONTEXT | FI_LOCAL_MR;
             fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str());
