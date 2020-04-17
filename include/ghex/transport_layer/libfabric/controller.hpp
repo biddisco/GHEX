@@ -211,7 +211,7 @@ namespace libfabric
             memory_pool_.reset(
                 new rma::memory_pool<libfabric_region_provider>(fabric_domain_));
 
-            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+//            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             // initialize rma allocator with a pool
             ghex::tl::libfabric::rma::allocator<unsigned char> allocator{};
@@ -916,7 +916,7 @@ namespace libfabric
         // --------------------------------------------------------------------
         gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
         {
-            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+//            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
             bool retry = true;
             std::uint32_t sends = 0;
             std::uint32_t recvs = 0;
@@ -943,7 +943,7 @@ namespace libfabric
             static auto polling = cnt_deb.make_timer(1
                     , hpx::debug::str<>("poll send queue"));
             cnt_deb.timed(polling);
-            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+//            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             fi_cq_msg_entry entry;
             int ret = fi_cq_read(txcq_, &entry, 1);
@@ -1038,7 +1038,7 @@ namespace libfabric
             static auto polling = cnt_deb.make_timer(1
                     , hpx::debug::str<>("poll recv queue"));
             cnt_deb.timed(polling);
-            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+//            ghex::cnt_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
 
             fi_addr_t src_addr;
             fi_cq_msg_entry entry;
