@@ -352,9 +352,9 @@ TEST(transport, ring_send_recv_cb_resubmit_disown)
     using comm_type      = std::remove_reference_t<decltype(comm)>;
     using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
-    test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int),1);
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int),2);
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int),3);
-    test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int),4);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int),5);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int),6);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int),7);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int),8);
 }
 
