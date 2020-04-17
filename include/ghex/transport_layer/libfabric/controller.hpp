@@ -43,7 +43,7 @@
 // underlying provider used by libfabric
 // ------------------------------------------------
 //#define GHEX_LIBFABRIC_PROVIDER_GNI 1
-#define GHEX_LIBFABRIC_PROVIDER_SOCKETS
+//#define GHEX_LIBFABRIC_PROVIDER_SOCKETS
 
 // ------------------------------------------------
 // if we have PMI we can bootstrap
@@ -416,8 +416,8 @@ namespace libfabric
             if (m_rank_ == 0) {
                 cnt_deb.debug(hpx::debug::str<>("root locality = src")
                               , iplocality(root_));
-                // this memory will (should) be deleted in hints destructor
-                struct sockaddr_in *socket_data1 = new struct sockaddr_in();
+                // this memory will (should) be deleted in hints destructor                
+                struct sockaddr_in *socket_data1 = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in));
                 memcpy(socket_data1, here_.fabric_data(), locality_defs::array_size);
                 fabric_hints_->addr_format  = FI_SOCKADDR_IN;
                 fabric_hints_->src_addr     = socket_data1;
@@ -427,21 +427,18 @@ namespace libfabric
                 cnt_deb.debug(hpx::debug::str<>("root locality = dest")
                               , iplocality(root_));
                 // this memory will (should) be deleted in hints destructor
-                struct sockaddr_in *socket_data2 = new struct sockaddr_in();
+                struct sockaddr_in *socket_data2 = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in));
                 memcpy(socket_data2, here_.fabric_data(), locality_defs::array_size);
                 fabric_hints_->addr_format  = FI_SOCKADDR_IN;
                 fabric_hints_->dest_addr    = socket_data2;
                 fabric_hints_->dest_addrlen = sizeof(struct sockaddr_in);
             }
+#endif
             //
             fabric_hints_->caps        = FI_MSG | FI_RMA | FI_SOURCE | /*FI_SOURCE_ERR |*/
                 FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT |
-                FI_DIRECTED_RECV;
-#elif defined(GHEX_LIBFABRIC_GNI)
-            fabric_hints_->caps        = FI_MSG | FI_RMA | FI_SOURCE |
-                FI_WRITE | FI_READ | FI_REMOTE_READ | FI_REMOTE_WRITE | FI_RMA_EVENT |
-                FI_DIRECTED_RECV;
-#endif
+                FI_DIRECTED_RECV | FI_TAGGED;
+
             fabric_hints_->mode                   = FI_CONTEXT | FI_LOCAL_MR;
             fabric_hints_->fabric_attr->prov_name = strdup(provider.c_str());
             cnt_deb.debug(hpx::debug::str<>("fabric provider")
@@ -475,7 +472,7 @@ namespace libfabric
             fabric_hints_->rx_attr->op_flags = FI_COMPLETION;
 
             uint64_t flags = 0;
-            cnt_deb.debug(hpx::debug::str<>("get fabric info"));
+            cnt_deb.debug(hpx::debug::str<>("get fabric info"), "FI_VERSION", GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR);
             int ret = fi_getinfo(FI_VERSION(GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR),
                 nullptr, nullptr, flags, fabric_hints_, &fabric_info_);
             if (ret) {
@@ -705,6 +702,7 @@ namespace libfabric
         void _set_disable_registration()
         {
 #ifdef GHEX_LIBFABRIC_PROVIDER_GNI
+            auto scp = ghex::cnt_deb.scope(this, __func__);
             _set_check_domain_op_value(GNI_MR_CACHE, "none");
 #endif
         }
@@ -721,9 +719,9 @@ namespace libfabric
             id = &ep_active_->fid;
 #endif
 
-#if defined(GHEX_LIBFABRIC_PROVIDER_SOCKETS)
+#if !defined(GHEX_LIBFABRIC_HAVE_BOOTSTRAPPING)
             // with tcp we do not use PMI boot, so enable the endpoint now
-            cnt_deb.debug(hpx::debug::str<>("Enabling (SOCKETS)") , hpx::debug::ptr(ep_active_));
+            cnt_deb.debug(hpx::debug::str<>("Enabling (ep_active)") , hpx::debug::ptr(ep_active_));
             ret = fi_enable(ep_active_);
             if (ret) throw fabric_error(ret, "fi_enable");
 #endif
