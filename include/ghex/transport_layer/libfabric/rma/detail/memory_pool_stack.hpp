@@ -27,12 +27,13 @@
 # include <set>
 #endif
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> mps_deb("MPSTACK");
-}
+}}
 
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -230,6 +231,6 @@ namespace detail
 #endif
     };
 
-}}}}}
+}}}}}}
 
 #endif

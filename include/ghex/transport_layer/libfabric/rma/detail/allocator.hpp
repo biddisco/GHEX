@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -46,7 +47,7 @@ namespace rma
         // --------------------------------------------------
         // create a sngleton shared_ptr to a controller that
         // can be shared between ghex context objects
-        using mempool_type = ghex::tl::libfabric::rma::memory_pool<::ghex::tl::libfabric::libfabric_region_provider, T>;
+        using mempool_type = ghex::tl::libfabric::rma::memory_pool<ghex::tl::libfabric::libfabric_region_provider, T>;
         using region_type = typename mempool_type::region_type;
 
         static mempool_type *mempool_ptr;
@@ -83,9 +84,10 @@ namespace rma
         friend bool operator!=(const allocator&, const allocator&) { return false; }
     };
 
-}}}}
+}}}}}
 
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -93,7 +95,7 @@ namespace rma
 {
     template<>
     rma::allocator<unsigned char>::mempool_type* allocator<unsigned char>::mempool_ptr = nullptr;
-}}}}
+}}}}}
 
 //ghex::tl::libfabric::rma::memory_pool<ghex::tl::libfabric::libfabric_region_provider, unsigned char>
 //    ghex::tl::libfabric::rma::allocator<unsigned char>::mempool_ptr = nullptr;

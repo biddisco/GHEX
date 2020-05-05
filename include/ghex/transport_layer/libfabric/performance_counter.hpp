@@ -21,6 +21,7 @@
 // the performance counter that will simply do nothing when disabled - but
 // still allow code that uses the counters in arithmetic to compile.
 //
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -105,7 +106,7 @@ namespace libfabric
             return os;
         }
     };
-}}}
+}}}}
 
 #endif
 

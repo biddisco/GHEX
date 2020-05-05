@@ -42,7 +42,7 @@ namespace gridtools {
             state_vector m_states;
             std::uintptr_t ctag_;
 
-            using controller_type = ::ghex::tl::libfabric::controller;
+            using controller_type = ghex::tl::libfabric::controller;
             controller_type  *controller_;
 
             // --------------------------------------------------

@@ -17,12 +17,13 @@
 //
 #include <vector>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> rma_deb("RMA_RCV");
 #define DEB_PREFIX(c) hpx::debug::str<>(c), hpx::debug::ptr(this)
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -680,6 +681,6 @@ namespace libfabric
     performance_counter<unsigned int> rma_receiver::sent_ack_;
     performance_counter<unsigned int> rma_receiver::rma_reads_;
     performance_counter<unsigned int> rma_receiver::recv_deletes_;
-}}}
+}}}}
 
 #endif

@@ -26,11 +26,12 @@
 # define GHEX_LIBFABRIC_LOCALITY_SOCKADDR
 #endif
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> loc_deb("LOCALIT");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -247,7 +248,7 @@ private:
         return os;
     }
 
-}}}
+}}}}
 
 #endif
 

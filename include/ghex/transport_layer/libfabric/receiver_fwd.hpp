@@ -19,6 +19,7 @@
 //
 #include <cstdint>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -126,6 +127,6 @@ namespace libfabric
         > rma_stack;
         static rma_stack rma_receivers_;
     };
-}}}
+}}}}
 
 #endif

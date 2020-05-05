@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -66,6 +67,6 @@ namespace detail
         }
     };
 
-}}}}}
+}}}}}}
 
 #endif

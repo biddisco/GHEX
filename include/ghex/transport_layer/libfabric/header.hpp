@@ -13,13 +13,14 @@
 #include <utility>
 #include <vector>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> head_deb("HEADER_");
-}
+}}
 
 // A generic header structure that can be used by parcelports
 // currently, the libfabric parcelport makes use of it
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -563,6 +564,6 @@ namespace libfabric
         }
     };
 
-}}}
+}}}}
 
 #endif

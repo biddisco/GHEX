@@ -52,11 +52,12 @@
 static_assert ( GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE<RDMA_POOL_MEDIUM_CHUNK_SIZE ,
 "Default memory Chunk size must be less than medium chunk size" );
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> pool_deb("MEMPOOL");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -342,6 +343,6 @@ namespace rma
             region_alloc_pointer_map_;
     };
 
-}}}}
+}}}}}
 
 #endif

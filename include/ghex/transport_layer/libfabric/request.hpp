@@ -28,7 +28,7 @@ namespace gridtools{
             /** @brief simple holder for a shared bool (ready flag) */
             struct request_t
             {
-                using controller_type = ::ghex::tl::libfabric::controller;
+                using controller_type = ghex::tl::libfabric::controller;
                 controller_type *m_controller = nullptr;
                 request_kind m_kind           = request_kind::none;
                 std::shared_ptr<bool> m_ready = nullptr;

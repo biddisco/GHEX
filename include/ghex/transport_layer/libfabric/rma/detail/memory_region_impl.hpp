@@ -14,11 +14,12 @@
 //
 #include <memory>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> memr_deb("MEM_REG");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -187,6 +188,6 @@ namespace detail
 
     };
 
-}}}}}
+}}}}}}
 
 #endif

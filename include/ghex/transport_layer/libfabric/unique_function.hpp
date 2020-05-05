@@ -6,6 +6,7 @@
 #include <functional>
 #include <type_traits>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -70,6 +71,6 @@ namespace libfabric
         using base::operator();
     };
 
-}}}
+}}}}
 
 #endif

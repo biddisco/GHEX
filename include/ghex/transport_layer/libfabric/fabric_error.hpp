@@ -15,11 +15,12 @@
 //
 #include <ghex/transport_layer/libfabric/print.hpp>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> err_deb("ERROR__");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -62,7 +63,7 @@ namespace libfabric
         int error_;
     };
 
-}}}
+}}}}
 
 #endif
 

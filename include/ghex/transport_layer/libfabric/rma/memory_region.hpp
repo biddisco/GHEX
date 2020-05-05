@@ -12,6 +12,7 @@
 #include <memory>
 #include <iomanip>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric {
@@ -156,6 +157,6 @@ namespace rma
         uint32_t flags_;
     };
 
-}}}}
+}}}}}
 
 #endif

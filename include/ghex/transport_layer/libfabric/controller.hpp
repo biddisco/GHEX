@@ -75,11 +75,12 @@
 #define GHEX_LIBFABRIC_FI_VERSION_MAJOR 1
 #define GHEX_LIBFABRIC_FI_VERSION_MINOR 9
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> cnt_deb("CONTROL");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -1230,6 +1231,6 @@ namespace libfabric
         }
     };
 
-}}}
+}}}}
 
 #endif

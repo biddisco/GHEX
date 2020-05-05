@@ -17,11 +17,12 @@
 //
 #include <cstdint>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> recv_deb("RECEIVE");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -349,6 +350,6 @@ namespace libfabric
         performance_counter<unsigned int> receiver::active_rma_receivers_(0);
         receiver::rma_stack               receiver::rma_receivers_;
 
-}}}
+}}}}
 
 #endif

@@ -99,7 +99,7 @@ namespace gridtools {
                     using transport_context_type = transport_context<libfabric_tag, ThreadPrimitives>;
                     using rank_type = int;
                     using tag_type = std::uint64_t;
-                    using controller_type = ::ghex::tl::libfabric::controller;
+                    using controller_type = ghex::tl::libfabric::controller;
 
                     controller_type        *m_controller;
                     transport_context_type *m_context;
@@ -126,8 +126,8 @@ namespace gridtools {
                     using tag_type = typename shared_state_type::tag_type;
                     template<typename T>
                     using future = future_t<T>;
-                    using progress_status = gridtools::ghex::tl::cb::progress_status;
-                    using controller_shared = std::shared_ptr<::ghex::tl::libfabric::controller>;
+                    using progress_status = ghex::tl::cb::progress_status;
+                    using controller_shared = std::shared_ptr<ghex::tl::libfabric::controller>;
 
                     thread_token* m_token_ptr;
                     int  m_progressed_sends = 0;
@@ -192,12 +192,12 @@ namespace gridtools {
                     template<typename T>
                     using future = future_t<T>;
                     template<typename T>
-                    using allocator_type  = ::ghex::tl::libfabric::rma::allocator<T>;
+                    using allocator_type  = ghex::tl::libfabric::rma::allocator<T>;
 
                     using address_type    = rank_type;
                     using request_cb_type = request_cb<ThreadPrimitives>;
                     using message_type    = typename request_cb_type::message_type;
-                    using progress_status = gridtools::ghex::tl::cb::progress_status;
+                    using progress_status = ghex::tl::cb::progress_status;
 
                   private: // members
                     shared_state_type* m_shared_state;
@@ -241,7 +241,7 @@ namespace gridtools {
                         // get main libfabric controller
                         auto controller = m_shared_state->m_controller;
                         // get a sender
-                        ::ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
+                        ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
 
                         // create a request
                         std::shared_ptr<bool> result(new bool(false));
@@ -291,7 +291,7 @@ namespace gridtools {
                         request req{controller, request_kind::recv, std::move(result)};
 
                         // get a receiver object (tagged, with a callback)
-                        ::ghex::tl::libfabric::receiver *rcv =
+                        ghex::tl::libfabric::receiver *rcv =
                                 controller->get_expected_receiver(src,
                             [p=req.m_ready](){
                                 *p = true;
@@ -342,7 +342,7 @@ namespace gridtools {
                         // get main libfabric controller
                         auto controller = m_shared_state->m_controller;
                         // get a sender
-                        ::ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
+                        ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
                         sndr->message_region_external_ = true;
 
                         // create a request
@@ -418,7 +418,7 @@ namespace gridtools {
                            };
 
                         // get a receiver object (tagged, with a callback)
-                        ::ghex::tl::libfabric::receiver *rcv =
+                        ghex::tl::libfabric::receiver *rcv =
                                 controller->get_expected_receiver(src, std::move(lambda));
 
                         ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")

@@ -9,7 +9,7 @@
 
 #include <memory>
 //
-namespace ghex { namespace traits
+namespace gridtools { namespace ghex { namespace traits
 {
     template <typename RegionProvider>
     struct rma_memory_region_traits
@@ -42,6 +42,6 @@ namespace ghex { namespace traits
             return RegionProvider::get_remote_key(mr);
         }
     };
-}}
+}}}
 
 #endif

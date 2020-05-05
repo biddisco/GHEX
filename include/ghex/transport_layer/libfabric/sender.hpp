@@ -26,11 +26,12 @@
 // include for iovec
 #include <sys/uio.h>
 
-namespace ghex {
+namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> send_deb("SENDER ");
-}
+}}
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -493,6 +494,6 @@ namespace libfabric
         struct iovec region_list_[2];
         void*        desc_[2];
     };
-}}}
+}}}}
 
 #endif

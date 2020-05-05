@@ -19,6 +19,7 @@
 #include <memory>
 #include <utility>
 //
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -56,6 +57,6 @@ namespace libfabric
         }
     };
 
-}}}
+}}}}
 
 #endif

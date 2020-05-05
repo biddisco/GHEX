@@ -10,6 +10,7 @@
 
 #include <rdma/fi_eq.h>
 
+namespace gridtools {
 namespace ghex {
 namespace tl {
 namespace libfabric
@@ -47,6 +48,6 @@ namespace libfabric
         rma_context_type context_rma_type;
 
     };
-}}}
+}}}}
 
 #endif
