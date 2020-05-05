@@ -25,10 +25,16 @@ using threading    = ghex::threads::omp::primitives;
 using threading    = ghex::threads::none::primitives;
 #endif
 
-#ifdef USE_UCP
+#if defined(USE_UCP)
 // UCX backend
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport    = ghex::tl::ucx_tag;
+
+#elif defined(USE_LIBFABRIC)
+// libfabric backend
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport    = ghex::tl::libfabric_tag;
+
 #else
 // MPI backend
 #include <ghex/transport_layer/mpi/context.hpp>
@@ -41,6 +47,7 @@ using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::request_cb_type;
 using allocator_type = typename communicator_type::template allocator_type<unsigned char>;
 using MsgType = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
+using tag_type = typename communicator_type::tag_type;
 
 
 #ifdef USE_OPENMP
@@ -115,7 +122,7 @@ int main(int argc, char *argv[])
 
             int comm_cnt = 0, nlsend_cnt = 0, nlrecv_cnt = 0;
 
-            auto send_callback = [&](communicator_type::message_type, int, int tag)
+            auto send_callback = [&](communicator_type::message_type, int, tag_type tag)
             {
                 // std::cout << "send callback called " << rank << " thread " << omp_get_thread_num() << " tag " << tag << "\n";
                 int pthr = tag/inflight;
@@ -124,7 +131,7 @@ int main(int argc, char *argv[])
                 sent++;
             };
 
-            auto recv_callback = [&](communicator_type::message_type, int, int tag)
+            auto recv_callback = [&](communicator_type::message_type, int, tag_type tag)
             {
                 // std::cout << "recv callback called " << rank << " thread " << omp_get_thread_num() << " tag " << tag << "\n";
                 int pthr = tag/inflight;

@@ -1,12 +1,12 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
 #include <iostream>
 #include <vector>
@@ -25,10 +25,16 @@ using threading    = ghex::threads::omp::primitives;
 using threading    = ghex::threads::none::primitives;
 #endif
 
-#ifdef USE_UCP
+#if defined(USE_UCP)
 // UCX backend
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport    = ghex::tl::ucx_tag;
+
+#elif defined(USE_LIBFABRIC)
+// libfabric backend
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport    = ghex::tl::libfabric_tag;
+
 #else
 // MPI backend
 #include <ghex/transport_layer/mpi/context.hpp>
@@ -41,6 +47,7 @@ using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::request_cb_type;
 using allocator_type = typename communicator_type::allocator_type<unsigned char>;
 using MsgType = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
+using tag_type = typename communicator_type::tag_type;
 
 
 #ifdef USE_OPENMP
@@ -118,7 +125,7 @@ int main(int argc, char *argv[])
             int last_sent = 0;
             int dbg = 0, sdbg = 0, rdbg = 0;
 
-            auto send_callback = [&](communicator_type::message_type, int, int tag)
+            auto send_callback = [&](communicator_type::message_type, int, tag_type tag)
             {
                 int pthr = tag/inflight;
                 if(pthr != thread_id) nlsend_cnt++;
@@ -126,7 +133,7 @@ int main(int argc, char *argv[])
                 sent++;
             };
 
-            auto recv_callback = [&](communicator_type::message_type, int, int tag)
+            auto recv_callback = [&](communicator_type::message_type, int, tag_type tag)
             {
                 int pthr = tag/inflight;
                 if(pthr != thread_id) nlrecv_cnt++;
@@ -270,8 +277,8 @@ int main(int argc, char *argv[])
                 context.thread_primitives().master(token,
                     [&]() mutable
                     {
-                        sf = comm.send(smsg, peer_rank, 0x80000, [](communicator_type::message_type, int, int){});
-                        rf = comm.recv(rmsg, peer_rank, 0x80000, [](communicator_type::message_type, int, int){});
+                        sf = comm.send(smsg, peer_rank, 0x80000, [](communicator_type::message_type, int, tag_type){});
+                        rf = comm.recv(rmsg, peer_rank, 0x80000, [](communicator_type::message_type, int, tag_type){});
                     });
 
                 while(tail_recv == 0){

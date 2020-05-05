@@ -25,10 +25,16 @@ using threading    = ghex::threads::omp::primitives;
 using threading    = ghex::threads::none::primitives;
 #endif
 
-#ifdef USE_UCP
+#if defined(USE_UCP)
 // UCX backend
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport    = ghex::tl::ucx_tag;
+
+#elif defined(USE_LIBFABRIC)
+// libfabric backend
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport    = ghex::tl::libfabric_tag;
+
 #else
 // MPI backend
 #include <ghex/transport_layer/mpi/context.hpp>
@@ -41,6 +47,7 @@ using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::future<void>;
 using allocator_type = typename communicator_type::template allocator_type<unsigned char>;
 using MsgType = gridtools::ghex::tl::message_buffer<allocator_type>;
+using tag_type = typename communicator_type::tag_type;
 
 
 #ifdef USE_OPENMP
