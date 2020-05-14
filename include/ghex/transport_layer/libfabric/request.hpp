@@ -25,13 +25,21 @@ namespace gridtools{
             /** @brief the type of the communication */
             enum class request_kind : int { none=0, send, recv };
 
+            // This struct holds the ready state of a future
+            // we must also store the context used in libfabric, in case
+            // a request is cancelled - fi_cancel(...) needs it
+            struct context_info {
+                bool  m_ready;
+                ghex::tl::libfabric::receiver *m_lf_context;
+            };
+
             /** @brief simple holder for a shared bool (ready flag) */
             struct request_t
             {
                 using controller_type = ghex::tl::libfabric::controller;
-                controller_type *m_controller = nullptr;
-                request_kind m_kind           = request_kind::none;
-                std::shared_ptr<bool> m_ready = nullptr;
+                controller_type *m_controller           = nullptr;
+                request_kind m_kind                     = request_kind::none;
+                std::shared_ptr<context_info> m_lf_ctxt = nullptr;
 
                 request_t() noexcept = default;
 
@@ -39,10 +47,10 @@ namespace gridtools{
                 // a request should never be created without it
                 bool test()
                 {
-                    if (!*m_ready) {
+                    if (!m_lf_ctxt->m_ready) {
                         m_controller->poll_for_work_completions();
                     }
-                    return *m_ready;
+                    return m_lf_ctxt->m_ready;
                 }
 
                 void wait()
@@ -52,8 +60,12 @@ namespace gridtools{
 
                 bool cancel()
                 {
-                    // @TODO not yet implemented
-                    return true;
+                    // we can  only cancel recv requests...
+                    if  (m_kind == request_kind::recv && (m_lf_ctxt->m_lf_context!=nullptr)) {
+                        auto c = m_lf_ctxt->m_lf_context->cancel();
+                        return (c==0);
+                    }
+                    return false;
                 }
 
             };

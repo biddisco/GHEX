@@ -164,12 +164,12 @@ namespace gridtools {
                     using gridtools::ghex::tl::libfabric::request_t::request_t;
                     using gridtools::ghex::tl::libfabric::request_t::m_controller;
                     using gridtools::ghex::tl::libfabric::request_t::m_kind;
-                    using gridtools::ghex::tl::libfabric::request_t::m_ready;
+                    using gridtools::ghex::tl::libfabric::request_t::m_lf_ctxt;
 
                     request_cb(const gridtools::ghex::tl::libfabric::request_t &r) {
                         m_controller = r.m_controller;
                         m_kind       = r.m_kind;
-                        m_ready      = r.m_ready;
+                        m_lf_ctxt    = r.m_lf_ctxt;
                     }
                 };
 
@@ -244,7 +244,7 @@ namespace gridtools {
                         ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
 
                         // create a request
-                        std::shared_ptr<bool> result(new bool(false));
+                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
                         request req{controller, request_kind::recv, std::move(result)};
 
                         ghex::com_deb.debug(hpx::debug::str<>("Send (future)")
@@ -259,8 +259,8 @@ namespace gridtools {
 
                         // async send, with callback to set the future ready when transfer is complete
                         sndr->message_region_external_ = true;
-                        sndr->async_send(msg, stag, [p=req.m_ready](){
-                            *p = true;
+                        sndr->async_send(msg, stag, [p=req.m_lf_ctxt](){
+                            p->m_ready = true;
                             ghex::com_deb.debug(hpx::debug::str<>("Send (future)"), "F(set)");
                         });
 
@@ -287,16 +287,20 @@ namespace gridtools {
                         auto controller = m_shared_state->m_controller;
 
                         // create a request
-                        std::shared_ptr<bool> result(new bool(false));
+                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
                         request req{controller, request_kind::recv, std::move(result)};
 
                         // get a receiver object (tagged, with a callback)
                         ghex::tl::libfabric::receiver *rcv =
                                 controller->get_expected_receiver(src,
-                            [p=req.m_ready](){
-                                *p = true;
+                            [p=req.m_lf_ctxt](){
+                                p->m_ready = true;
                                 ghex::com_deb.debug(hpx::debug::str<>("Receive (future)"), "F(set)");
                             });
+
+                        // to support cancellation, we pass the context pointer (receiver)
+                        // into the future shared state
+                        req.m_lf_ctxt->m_lf_context = rcv;
 
                         ghex::com_deb.debug(hpx::debug::str<>("Recv (future)")
                             , "thisrank", hpx::debug::dec<>(rank())
@@ -346,20 +350,20 @@ namespace gridtools {
                         sndr->message_region_external_ = true;
 
                         // create a request
-                        std::shared_ptr<bool> result(new bool(false));
+                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
                         request req{controller, request_kind::recv, std::move(result)};
 
                         const void *data_ptr = msg.data();
                         std::size_t size = msg.size();
 
                         auto lambda = [
-                                p=req.m_ready,
+                                p=req.m_lf_ctxt,
                                 callback = std::forward<CallBack>(callback),
                                 msg = std::forward<message_type>(msg),
                                 dst, tag
                                 ]() mutable
                            {
-                               *p = true;
+                               p->m_ready = true;
                                ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
                                     , "F(set)", hpx::debug::dec<>(dst));
                                callback(std::move(msg), dst, tag);
@@ -392,19 +396,19 @@ namespace gridtools {
                         auto controller = m_shared_state->m_controller;
 
                         // create a request
-                        std::shared_ptr<bool> result(new bool(false));
+                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
                         request req{controller, request_kind::recv, std::move(result)};
 
                         // setup a callback that will set the future ready
                         // move the message into the callback function
                         auto lambda = [
-                                p=req.m_ready,
+                                p=req.m_lf_ctxt,
                                 callback = std::forward<CallBack>(callback),
                                 msg = std::move<message_type>(std::forward<message_type>(msg)),
                                 src, tag
                                 ]() mutable
                            {
-                               *p = true;
+                               p->m_ready = true;
                                ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
                                     , "F(set)"
                                     , "from rank", hpx::debug::dec<>(src)
@@ -420,6 +424,10 @@ namespace gridtools {
                         // get a receiver object (tagged, with a callback)
                         ghex::tl::libfabric::receiver *rcv =
                                 controller->get_expected_receiver(src, std::move(lambda));
+
+                        // to support cancellation, we pass the context pointer (receiver)
+                        // into the future shared state
+                        req.m_lf_ctxt->m_lf_context = rcv;
 
                         ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
                             , "thisrank", hpx::debug::dec<>(rank())

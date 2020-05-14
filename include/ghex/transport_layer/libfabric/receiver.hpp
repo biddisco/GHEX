@@ -212,6 +212,12 @@ namespace libfabric
             return recv;
         }
 
+        void receiver::handle_cancel() {
+            // for now - do nothing as the future/request associated with this
+            // receive has probably been allowed to go out of scope
+            //postprocess_handler_(this);
+        }
+
         // --------------------------------------------------------------------
         // A received message is routed by the controller into this function.
         // it might be an incoming message or just an ack sent to inform that
@@ -343,6 +349,10 @@ namespace libfabric
             pre_post_receive(tag);
         }
 
+        int receiver::cancel()
+        {
+            return fi_cancel(&this->endpoint_->fid, this);
+        }
 
         performance_counter<unsigned int> receiver::messages_handled_(0);
         performance_counter<unsigned int> receiver::acks_received_(0);

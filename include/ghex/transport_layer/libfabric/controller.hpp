@@ -1100,15 +1100,24 @@ namespace libfabric
                 int err_sz = fi_cq_readerr(rxcq_, &e ,0);
                 HPX_UNUSED(err_sz);
                 // from the manpage 'man 3 fi_cq_readerr'
-                //
-                cnt_deb.error("rxcq Error ??? "
-                              , "err"     , hpx::debug::dec<>(-e.err)
-                              , "flags"   , hpx::debug::hex<6>(e.flags)
-                              , "len"     , hpx::debug::hex<6>(e.len)
-                              , "context" , hpx::debug::ptr(e.op_context)
-                              , "error"   ,
-                fi_cq_strerror(rxcq_, e.prov_errno, e.err_data, (char*)e.buf, e.len));
-                std::terminate();
+                if (e.err==FI_ECANCELED) {
+                    cnt_deb.debug("rxcq Cancelled "
+                                  , "flags"   , hpx::debug::hex<6>(e.flags)
+                                  , "len"     , hpx::debug::hex<6>(e.len)
+                                  , "context" , hpx::debug::ptr(e.op_context));
+                    reinterpret_cast<receiver *>
+                            (entry.op_context)->handle_cancel();
+                }
+                else {
+                    cnt_deb.error("rxcq Error ??? "
+                                  , "err"     , hpx::debug::dec<>(-e.err)
+                                  , "flags"   , hpx::debug::hex<6>(e.flags)
+                                  , "len"     , hpx::debug::hex<6>(e.len)
+                                  , "context" , hpx::debug::ptr(e.op_context)
+                                  , "error"   ,
+                    fi_cq_strerror(rxcq_, e.prov_errno, e.err_data, (char*)e.buf, e.len));
+                    std::terminate();
+                }
             }
             else {
                 cnt_deb.error("unknown error in completion rxcq read");

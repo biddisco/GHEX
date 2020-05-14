@@ -68,6 +68,8 @@ namespace libfabric
         // the owning receiver is called to handle processing of the buffer
         void pre_post_receive(uint64_t tag);
 
+        int cancel();
+
         template <typename Message>
         void pre_post_receive_msg(Message &msg, uint64_t tag);
 
@@ -94,6 +96,8 @@ namespace libfabric
         //
         // This function is only called when lifabric is used for bootstrapping
         void handle_new_connection(controller *controller, std::uint64_t len);
+
+        void handle_cancel();
 
         // --------------------------------------------------------------------
         // Not used, provided for potential/future rma_base compatibility

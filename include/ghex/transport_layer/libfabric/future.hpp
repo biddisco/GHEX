@@ -59,14 +59,11 @@ namespace gridtools{
                     return std::move(m_data);
                 }
 
-                bool is_recv() const noexcept { return (m_handle.m_kind == request_kind::recv); }
-
                 /** Cancel the future.
                   * @return True if the request was successfully canceled */
                 bool cancel()
                 {
-                    // @TODO not yet implemented
-                    return true;
+                    return m_handle.cancel();
                 }
             };
 
@@ -106,11 +103,9 @@ namespace gridtools{
                     wait();
                 }
 
-                bool is_recv() const noexcept { return (m_handle.m_kind == request_kind::recv); }
-
                 bool cancel()
                 {
-                        return true;
+                    return m_handle.cancel();
                 }
             };
 
