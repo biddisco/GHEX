@@ -20,18 +20,18 @@
 #include "ghex_libfabric_defines.hpp"
 //
 // -------------------------------------------------------------
-// Legacy macros that will be removed once all places 
+// Legacy macros that will be removed once all places
 // using them have been cleaned up
 // -------------------------------------------------------------
-#define hexbyte(p)    p
+#define hexbyte(p) p
 #define hexpointer(p) p
-#define hexuint32(p)  p
-#define hexuint64(p)  p
-#define hexlength(p)  p
-#define binary8(p)    p
-#define hexnumber(p)  p
-#define decnumber(p)  p
-#define ipaddress(p)  p
+#define hexuint32(p) p
+#define hexuint64(p) p
+#define hexlength(p) p
+#define binary8(p) p
+#define hexnumber(p) p
+#define decnumber(p) p
+#define ipaddress(p) p
 
 #define LOG_DEBUG_MSG(x)
 #define LOG_INFO_MSG(x)
@@ -42,9 +42,9 @@
 #define LOG_TIMED_INIT(name)
 #define LOG_TIMED_MSG(name, level, delay, x)
 #define LOG_TIMED_BLOCK(name, level, delay, x)
-#define LOG_ERROR_MSG(x)                                   \
-    std::cout << "00: <ERR> " << x << " " << __FILE__    \
-              << " " << std::dec << __LINE__ << std::endl;
+#define LOG_ERROR_MSG(x)                                                       \
+    std::cout << "00: <ERR> " << x << " " << __FILE__ << " " << std::dec       \
+              << __LINE__ << std::endl;
 #define LOG_FATAL_MSG(x) LOG_ERROR_MSG(x)
 
 #define LOG_EXCLUSIVE(x)
@@ -255,23 +255,22 @@ namespace hpx { namespace debug {
     struct ipaddr
     {
         ipaddr(const void* a)
-          : data_(reinterpret_cast<const uint8_t*>(a)), ipdata_(0)
+          : data_(reinterpret_cast<const uint8_t*>(a))
+          , ipdata_(0)
         {
         }
         ipaddr(const uint32_t a)
-          : data_(reinterpret_cast<const uint8_t*>(&ipdata_)), ipdata_(a)
+          : data_(reinterpret_cast<const uint8_t*>(&ipdata_))
+          , ipdata_(a)
         {
         }
-        const uint8_t *data_;
+        const uint8_t* data_;
         const uint32_t ipdata_;
 
         friend std::ostream& operator<<(std::ostream& os, const ipaddr& p)
         {
-            os << std::dec
-               << int(p.data_[0]) << "."
-               << int(p.data_[1]) << "."
-               << int(p.data_[2]) << "."
-               << int(p.data_[3]);
+            os << std::dec << int(p.data_[0]) << "." << int(p.data_[1]) << "."
+               << int(p.data_[2]) << "." << int(p.data_[3]);
             return os;
         }
     };
@@ -308,9 +307,12 @@ namespace hpx { namespace debug {
             const uint64_t* uintBuf = static_cast<const uint64_t*>(p.addr_);
             os << "Memory:";
             os << " address " << hpx::debug::ptr(p.addr_) << " length "
-               << hpx::debug::hex<6>(p.len_) << " CRC32:"
-               << hpx::debug::hex<8>(crc32(p.addr_, p.len_)) << "\n";
-            for (size_t i = 0; i < (std::min)(size_t(std::ceil(p.len_ / 8.0)), size_t(128)); i++)
+               << hpx::debug::hex<6>(p.len_)
+               << " CRC32:" << hpx::debug::hex<8>(crc32(p.addr_, p.len_))
+               << "\n";
+            for (size_t i = 0;
+                 i < (std::min)(size_t(std::ceil(p.len_ / 8.0)), size_t(128));
+                 i++)
             {
                 os << hpx::debug::hex<16>(*uintBuf++) << " ";
             }
@@ -365,7 +367,8 @@ namespace hpx { namespace debug {
         }
 
         template <typename Arg, typename... Args>
-        void variadic_print(std::ostream& os, const Arg &arg, const Args&... args)
+        void variadic_print(
+            std::ostream& os, const Arg& arg, const Args&... args)
         {
             os << arg;
             using expander = int[];
@@ -380,7 +383,7 @@ namespace hpx { namespace debug {
 
 #endif
 
-    }
+    }    // namespace detail
 
     namespace detail {
 
@@ -395,12 +398,12 @@ namespace hpx { namespace debug {
             std::ostream& os, const current_thread_print_helper&)
         {
             os << hex<12, std::thread::id>(std::this_thread::get_id())
-    #ifdef DEBUGGING_PRINT_LINUX
+#ifdef DEBUGGING_PRINT_LINUX
                << " cpu " << debug::dec<3, int>(sched_getcpu()) << " ";
-    #else
+#else
                << " cpu "
                << "--- ";
-    #endif
+#endif
             return os;
         }
 
@@ -415,8 +418,7 @@ namespace hpx { namespace debug {
             std::ostream& os, const current_time_print_helper&)
         {
             using namespace std::chrono;
-            static steady_clock::time_point log_t_start =
-                steady_clock::now();
+            static steady_clock::time_point log_t_start = steady_clock::now();
             //
             auto now = steady_clock::now();
             auto nowt = duration_cast<microseconds>(now - log_t_start).count();
@@ -428,7 +430,7 @@ namespace hpx { namespace debug {
         template <typename... Args>
         void display(const char* prefix, const Args&... args);
 
-    #ifdef GHEX_HAVE_CXX17_FOLD_EXPRESSIONS
+#ifdef GHEX_HAVE_CXX17_FOLD_EXPRESSIONS
         template <typename... Args>
         void display(const char* prefix, std::forward<Args>(args)... args)
         {
@@ -442,7 +444,7 @@ namespace hpx { namespace debug {
             std::cout << tempstream.str();
         }
 
-    #else
+#else
         template <typename... Args>
         void display(const char* prefix, const Args&... args)
         {
@@ -455,7 +457,7 @@ namespace hpx { namespace debug {
             tempstream << std::endl;
             std::cout << tempstream.str();
         }
-    #endif
+#endif
 
         template <typename... Args>
         void debug(const Args&... args)
@@ -519,7 +521,7 @@ namespace hpx { namespace debug {
     struct scoped_var
     {
         // capture tuple elements by reference - no temp vars in constructor please
-        const char *prefix_;
+        const char* prefix_;
         const std::tuple<const Args&...> message_;
         std::string buffered_msg;
         //
@@ -530,12 +532,14 @@ namespace hpx { namespace debug {
             std::stringstream tempstream;
             detail::tuple_print(tempstream, message_);
             buffered_msg = tempstream.str();
-            detail::display("<SCO> ", prefix_, debug::str<>(">> enter <<"), tempstream.str());
+            detail::display("<SCO> ", prefix_, debug::str<>(">> enter <<"),
+                tempstream.str());
         }
 
         ~scoped_var()
         {
-            detail::display("<SCO> ", prefix_, debug::str<>("<< leave >>"), buffered_msg);
+            detail::display(
+                "<SCO> ", prefix_, debug::str<>("<< leave >>"), buffered_msg);
         }
     };
 
@@ -760,10 +764,9 @@ namespace hpx { namespace debug {
         {
             return timed_var<Args...>(delay, args...);
         }
-
     };
 
-}}
+}}    // namespace hpx::debug
 /// \endcond
 
 #endif
