@@ -56,8 +56,10 @@
 // -------------------------------------------------------------
 
 #if defined(__linux) || defined(linux) || defined(__linux__)
-#include <linux/unistd.h>
+//#include <linux/unistd.h>
+#include <unistd.h>
 #include <sys/mman.h>
+extern char **environ;
 #define DEBUGGING_PRINT_LINUX
 #endif
 
@@ -74,7 +76,7 @@
 // when the template parameter is false, the optimizer will
 // not produce code and so the impact is nil.
 //
-// static hpx::debug::enable_print<false> spq_deb("SUBJECT");
+// static hpx::debug::enable_print<true> spq_deb("SUBJECT");
 //
 // Later in code you may print information using
 //
@@ -332,8 +334,7 @@ namespace hpx { namespace debug {
         }
 
         template <typename... Args>
-        void tuple_print(std::ostream& os,
-            const std::tuple<std::forward<Args>(args)...>& tup)
+        void tuple_print(std::ostream& os, const std::tuple<Args...>& tup)
         {
             tuple_print(os, tup, std::make_index_sequence<sizeof...(Args)>());
         }
@@ -410,6 +411,50 @@ namespace hpx { namespace debug {
         // ------------------------------------------------------------------
         // helper class for printing time since start
         // ------------------------------------------------------------------
+        struct hostname_print_helper
+        {
+            const char *get_hostname() const {
+                static bool initialized = false;
+                static char hostname_[20];
+                if (!initialized) {
+                    initialized = true;
+                    gethostname(hostname_, std::size_t(12));
+                    std::string temp = "(" + std::to_string(guess_rank()) + ")";
+                    std::strcat(hostname_, temp.c_str());
+                }
+                return hostname_;
+            }
+
+            int guess_rank() const {
+#ifdef DEBUGGING_PRINT_LINUX
+                std::vector<std::string> env_strings{"_RANK=", "_NODEID="};
+                for(char **current = environ; *current; current++) {
+                    auto e = std::string(*current);
+                    for (auto s : env_strings) {
+                        auto pos = e.find(s);
+                        if (pos != std::string::npos) {
+                            //std::cout << "Got a rank string : " << e << std::endl;
+                            return std::stoi(e.substr(pos+s.size(), 5));
+                        }
+                    }
+                }
+                return -1;
+#else
+                return 0;
+#endif
+            }
+        };
+
+        inline std::ostream& operator<<(
+            std::ostream& os, const hostname_print_helper& h)
+        {
+            os << debug::str<13>(h.get_hostname()) << " ";
+            return os;
+        }
+
+        // ------------------------------------------------------------------
+        // helper class for printing time since start
+        // ------------------------------------------------------------------
         struct current_time_print_helper
         {
         };
@@ -452,7 +497,8 @@ namespace hpx { namespace debug {
             // prevents multiple threads from injecting overlapping text
             std::stringstream tempstream;
             tempstream << prefix << detail::current_time_print_helper()
-                       << detail::current_thread_print_helper();
+                       << detail::current_thread_print_helper()
+                       << detail::hostname_print_helper();
             variadic_print(tempstream, args...);
             tempstream << std::endl;
             std::cout << tempstream.str();
@@ -665,7 +711,12 @@ namespace hpx { namespace debug {
         const char* prefix_;
 
     public:
-        enable_print(const char* p)
+        constexpr enable_print()
+          : prefix_("")
+        {
+        }
+
+        constexpr enable_print(const char* p)
           : prefix_(p)
         {
         }
@@ -760,7 +811,7 @@ namespace hpx { namespace debug {
         }
 
         template <typename... Args>
-        timed_var<Args...> make_timer(const double delay, const Args... args)
+        timed_var<Args...> make_timer(const double delay, const Args... args) const
         {
             return timed_var<Args...>(delay, args...);
         }
