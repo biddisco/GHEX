@@ -267,7 +267,7 @@ namespace libfabric
 
             // we dispatch our work to our rma_receiver once it completed the
             // prior message. The saved region is passed to the rma handler
-            ++messages_handled_;            
+            ++messages_handled_;
             return recv->read_message(region, src_addr);
         }
 
@@ -338,9 +338,9 @@ namespace libfabric
             ghex_region_ = dynamic_cast<region_type*>(
                         memory_pool_->region_from_address(msg.data()));
 
-            bool ghex_region_temp_ = false;
+//            bool ghex_region_temp_ = false;
             if (ghex_region_ == nullptr) {
-                ghex_region_temp_ = true;
+//                ghex_region_temp_ = true;
                 ghex_region_ = memory_pool_->register_temporary_region(msg.data(), msg.size());
                 memory_pool_->add_address_to_map(msg.data(), ghex_region_);
             }
