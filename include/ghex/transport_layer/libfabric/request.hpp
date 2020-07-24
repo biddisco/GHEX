@@ -47,6 +47,9 @@ namespace gridtools{
                 // a request should never be created without it
                 bool test()
                 {
+                    if (!m_lf_ctxt ) {
+                        return true;
+                    }
                     if (!m_lf_ctxt->m_ready) {
                         m_controller->poll_for_work_completions();
                     }
