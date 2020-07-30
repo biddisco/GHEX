@@ -67,6 +67,7 @@ namespace libfabric
         // itself as the context, so that when a message is received
         // the owning receiver is called to handle processing of the buffer
         void pre_post_receive(uint64_t tag);
+        void pre_post_receive_tagged(uint64_t tag);
 
         int cancel();
 
@@ -88,6 +89,7 @@ namespace libfabric
         // it might be an incoming message or just an ack sent to inform that
         // all rdma reads are complete from a previous send operation.
         int handle_recv(fi_addr_t const& src_addr, std::uint64_t len);
+        int handle_recv_tagged(fi_addr_t const& src_addr, std::uint64_t len);
 
         // --------------------------------------------------------------------
         // A new connection only contains a locality address of the sender

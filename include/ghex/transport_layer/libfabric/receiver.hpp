@@ -239,13 +239,12 @@ namespace libfabric
                 , "ghex region", *ghex_region_);
             }
 
-            // If we receive a message of 8 bytes, we got a ack and need to handle
-            // the tag completion...
+            HPX_ASSERT(tag_ == std::uint64_t(-1));
+
+            // If we receive an unexepcted message of 8 bytes,
+            // we got an RMA complete ack and need to handle the tag completion...
             if (len <= sizeof(std::uint64_t))
             {
-                // this should only ever occurr on an unexpected message
-                HPX_ASSERT(tag_ == std::uint64_t(-1));
-
                 // Get the sender that has completed rma operations and signal to it
                 // that it can now cleanup - all remote get operations are done.
                 sender* snd = *reinterpret_cast<sender **>(header_region_->get_address());
@@ -256,19 +255,79 @@ namespace libfabric
                 return snd->handle_message_completion_ack();
             }
 
-            rma_receiver* recv = get_rma_receiver(src_addr);
-            recv->user_recv_cb_ = std::move(user_recv_cb_);
-
             // We save the received region and swap it with a newly allocated one
             // so that we can post a recv again as soon as possible.
             region_type* region = header_region_;
             header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
             postprocess_handler_(this);
 
+            rma_receiver* recv = get_rma_receiver(src_addr);
+            recv->user_recv_cb_ = std::move(user_recv_cb_);
+
             // we dispatch our work to our rma_receiver once it completed the
             // prior message. The saved region is passed to the rma handler
             ++messages_handled_;
             return recv->read_message(region, src_addr);
+        }
+
+        int receiver::handle_recv_tagged(fi_addr_t const& src_addr, std::uint64_t len)
+        {
+            auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+            static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
+                "sizeof(std::uint64_t) != sizeof(std::size_t)");
+
+            recv_deb.debug(hpx::debug::str<>("handling recv")
+                , "tag", hpx::debug::hex<16>(tag_)
+                , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
+
+            if (ghex_region_) {
+                recv_deb.debug(hpx::debug::str<>("ghex region")
+                , "ghex region", *ghex_region_);
+            }
+
+            postprocess_handler_(this);
+            ++messages_handled_;
+            user_recv_cb_();
+
+            return 1;
+        }
+
+        // --------------------------------------------------------------------
+        // the receiver posts a single receive buffer to the queue, attaching
+        // itself as the context, so that when a message is received
+        // the owning receiver is called to handle processing of the buffer
+        void receiver::pre_post_receive_tagged(uint64_t tag)
+        {
+            auto scp = ghex::recv_deb.scope(__func__);
+            (void)scp;
+            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+
+            //
+            tag_ = tag;
+
+            // this should never actually return true and yield
+            bool ok = false;
+            while(!ok) {
+                uint64_t ignore = 0;
+                void *desc = ghex_region_->get_local_key();
+                ssize_t ret = fi_trecv(this->endpoint_,
+                    ghex_region_->get_address(),
+                    ghex_region_->get_size(), desc, src_addr_, tag, ignore, this);
+
+                if (ret ==0) {
+                    ok = true;
+                }
+                else if (ret == -FI_EAGAIN)
+                {
+                    recv_deb.error("reposting fi_recv\n");
+                    std::this_thread::sleep_for(std::chrono::microseconds(1));
+                }
+                else if (ret != 0)
+                {
+                    throw fabric_error(int(ret), "pp_post_rx");
+                }
+            }
         }
 
         // --------------------------------------------------------------------
@@ -338,15 +397,15 @@ namespace libfabric
             ghex_region_ = dynamic_cast<region_type*>(
                         memory_pool_->region_from_address(msg.data()));
 
-//            bool ghex_region_temp_ = false;
             if (ghex_region_ == nullptr) {
-//                ghex_region_temp_ = true;
                 ghex_region_ = memory_pool_->register_temporary_region(msg.data(), msg.size());
                 memory_pool_->add_address_to_map(msg.data(), ghex_region_);
             }
             ghex_region_->set_message_length(msg.size());
             recv_deb.debug(hpx::debug::str<>("ghex region"), *ghex_region_);
-            pre_post_receive(tag);
+
+            HPX_ASSERT(tag_ != std::uint64_t(-1));
+            pre_post_receive_tagged(tag);
         }
 
         int receiver::cancel()

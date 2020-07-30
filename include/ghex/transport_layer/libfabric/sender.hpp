@@ -105,6 +105,81 @@ namespace libfabric
         // with an optional extra message region if it cannot be piggybacked
         // send chunk/rma information for all zero copy serialization regions
         template<typename Callback>
+        void async_send_tagged(const void *data,
+                        std::size_t size,
+                        uint64_t tag,
+                        Callback &&cb_fn)
+        {
+            auto scp = ghex::send_deb.scope(__func__);
+            ghex::send_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+            HPX_ASSERT(message_region_ == nullptr);
+            HPX_ASSERT(completion_count_ == 0);
+
+            // increment counter of total messages sent
+            ++sends_posted_;
+            send_tag_           = tag;
+            user_send_cb_       = std::move(cb_fn);
+
+            message_region_ = dynamic_cast<region_type*>(
+                        memory_pool_->region_from_address(data));
+
+            message_region_temp_ = false;
+            if (message_region_ == nullptr) {
+                message_region_temp_ = true;
+                message_region_ = memory_pool_->register_temporary_region(data, size);
+                memory_pool_->add_address_to_map(data, message_region_);
+            }
+
+            // Get the block of pinned memory where the message resides
+            message_region_->set_message_length(size);
+
+            send_deb.debug(hpx::debug::str<>("message buffer")
+                , hpx::debug::ptr(data)
+                , *message_region_);
+
+            // The number of completions we need before cleaning up:
+            completion_count_ = 1;
+            region_list_[0] = {
+                message_region_->get_address(), message_region_->get_message_length() };
+
+            desc_[0] = message_region_->get_local_key();
+
+            {
+                send_deb.debug(hpx::debug::str<>("Sender"), hpx::debug::ptr(this)
+                    , "tag", hpx::debug::hex<16>(tag)
+                    , "Tagged message - No header");
+
+                // send 2 regions as one message, goes into one receive
+                bool ok = false;
+                while (!ok) {
+                    ssize_t ret = fi_tsendv(this->endpoint_, this->region_list_,
+                        this->desc_, 2, this->dst_addr_, this->send_tag_, this);
+
+                    if (ret == 0) {
+                        ok = true;
+                    }
+                    else if (ret == -FI_EAGAIN) {
+                        send_deb.error("Reposting fi_sendv / fi_tsendv");
+                        //controller_->background_work(0, controller_background_mode_all);
+                    }
+                    else if (ret == -FI_ENOENT) {
+                        // if a node has failed, we can recover @TODO : put something here
+                        send_deb.error("No destination endpoint, retrying after 1s ...");
+                        std::terminate();
+                    }
+                    else if (ret)
+                    {
+                        throw fabric_error(int(ret), "fi_sendv / fi_tsendv");
+                    }
+                }
+            }
+        }
+
+        // --------------------------------------------------------------------
+        // The main message send routine : package the header, send it
+        // with an optional extra message region if it cannot be piggybacked
+        // send chunk/rma information for all zero copy serialization regions
+        template<typename Callback>
         void async_send(const void *data,
                         std::size_t size,
                         uint64_t tag,
@@ -304,6 +379,18 @@ namespace libfabric
                         Callback &&cb_fn)
         {
             async_send(msg.data(), msg.size(), tag, std::forward<Callback>(cb_fn));       
+        }
+
+        // --------------------------------------------------------------------
+        // The main message send routine : package the header, send it
+        // with an optional extra message region if it cannot be piggybacked
+        // send chunk/rma information for all zero copy serialization regions
+        template<typename Message, typename Callback>
+        void async_send_tagged(const Message& msg,
+                        uint64_t tag,
+                        Callback &&cb_fn)
+        {
+            async_send_tagged(msg.data(), msg.size(), tag, std::forward<Callback>(cb_fn));
         }
 
         // --------------------------------------------------------------------

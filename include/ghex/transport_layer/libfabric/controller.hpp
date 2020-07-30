@@ -1082,7 +1082,7 @@ namespace libfabric
                         , "rxcq recv tagged completion"
                         , hpx::debug::ptr(entry.op_context));
                     processed.user_msgs += reinterpret_cast<receiver *>
-                            (entry.op_context)->handle_recv(src_addr, entry.len);
+                            (entry.op_context)->handle_recv_tagged(src_addr, entry.len);
                 }
                 else {
                     cnt_deb.error("Received an unknown rxcq completion"

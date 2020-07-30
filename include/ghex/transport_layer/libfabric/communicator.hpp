@@ -259,7 +259,7 @@ namespace gridtools {
 
                         // async send, with callback to set the future ready when transfer is complete
                         sndr->message_region_external_ = true;
-                        sndr->async_send(msg, stag, [p=req.m_lf_ctxt](){
+                        sndr->async_send_tagged(msg, stag, [p=req.m_lf_ctxt](){
                             p->m_ready = true;
                             ghex::com_deb.debug(hpx::debug::str<>("Send (future)"), "F(set)");
                         });
@@ -380,7 +380,7 @@ namespace gridtools {
                             , "size", hpx::debug::hex<6>(msg.size()));
 
                         // perform a send with the callback for when transfer is complete
-                        sndr->async_send(data_ptr, size, stag, std::move(lambda));
+                        sndr->async_send_tagged(data_ptr, size, stag, std::move(lambda));
                         return req;
                     }
 
