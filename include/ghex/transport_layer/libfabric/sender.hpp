@@ -152,8 +152,9 @@ namespace libfabric
                 // send 2 regions as one message, goes into one receive
                 bool ok = false;
                 while (!ok) {
-                    ssize_t ret = fi_tsendv(this->endpoint_, this->region_list_,
-                        this->desc_, 2, this->dst_addr_, this->send_tag_, this);
+
+                    ssize_t ret = fi_tsend(this->endpoint_, message_region_->get_address(), message_region_->get_message_length(), message_region_->get_local_key(),
+                        this->dst_addr_, this->send_tag_, this);
 
                     if (ret == 0) {
                         ok = true;

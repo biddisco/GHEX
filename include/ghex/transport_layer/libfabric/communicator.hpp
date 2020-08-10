@@ -28,68 +28,7 @@ namespace gridtools {
         namespace tl {
             namespace libfabric {
 
-                struct libfabric_tag_type {};
-
                 struct status_t {};
-
-                namespace impl
-                {
-                    template <typename T>
-                    class by_value
-                    {
-                    private:
-                        T _x;
-
-                    public:
-                        template <typename TFwd>
-                        by_value(TFwd&& x) : _x{std::forward<TFwd>(x)}
-                        {
-                        }
-
-                        auto&       get() &      { return _x; }
-                        const auto& get() const& { return _x; }
-                        auto        get() &&     { return std::move(_x); }
-                    };
-
-                    template <typename T>
-                    class by_ref
-                    {
-                    private:
-                        std::reference_wrapper<T> _x;
-
-                    public:
-                        by_ref(T& x) : _x{x}
-                        {
-                        }
-
-                        auto&       get() &      { return _x.get(); }
-                        const auto& get() const& { return _x.get(); }
-                        auto        get() &&     { return std::move(_x.get()); }
-                    };
-
-                }
-
-                // Unspecialized version: stores a `T` instance by value.
-                template <typename T>
-                struct fwd_capture_wrapper : impl::by_value<T>
-                {
-                    // "Inherit" constructors.
-                    using impl::by_value<T>::by_value;
-                };
-
-                template <typename T>
-                auto fwd_capture(T&& x)
-                {
-                    return fwd_capture_wrapper<T>(std::forward<T>(x));
-                }
-
-                // Specialized version: stores a `T` reference.
-                template <typename T>
-                struct fwd_capture_wrapper<T&> : impl::by_ref<T>
-                {
-                    // "Inherit" constructors.
-                    using impl::by_ref<T>::by_ref;
-                };
 
                 /** @brief common data which is shared by all communicators. This class is thread safe.
                   * @tparam ThreadPrimitives The thread primitives type */
@@ -119,15 +58,14 @@ namespace gridtools {
                   * @tparam ThreadPrimitives The thread primitives type */
                 template<typename ThreadPrimitives>
                 struct communicator_state {
-                    using shared_state_type = shared_communicator_state<ThreadPrimitives>;
+                    using shared_state_type      = shared_communicator_state<ThreadPrimitives>;
                     using thread_primitives_type = ThreadPrimitives;
-                    using thread_token = typename thread_primitives_type::token;
-                    using rank_type = typename shared_state_type::rank_type;
-                    using tag_type = typename shared_state_type::tag_type;
-                    template<typename T>
-                    using future = future_t<T>;
-                    using progress_status = ghex::tl::cb::progress_status;
-                    using controller_shared = std::shared_ptr<ghex::tl::libfabric::controller>;
+                    using thread_token           = typename thread_primitives_type::token;
+                    using rank_type              = typename shared_state_type::rank_type;
+                    using tag_type               = typename shared_state_type::tag_type;
+                    template<typename T> using future = future_t<T>;
+                    using progress_status        = ghex::tl::cb::progress_status;
+                    using controller_shared      = std::shared_ptr<ghex::tl::libfabric::controller>;
 
                     thread_token* m_token_ptr;
                     int  m_progressed_sends = 0;
@@ -181,18 +119,15 @@ namespace gridtools {
                 class communicator {
                   public: // member types
                     using thread_primitives_type = ThreadPrimitives;
-                    using shared_state_type = shared_communicator_state<ThreadPrimitives>;
+                    using shared_state_type      = shared_communicator_state<ThreadPrimitives>;
                     using transport_context_type = transport_context<libfabric_tag, ThreadPrimitives>;
-                    using thread_token = typename thread_primitives_type::token;
-                    using state_type = communicator_state<ThreadPrimitives>;
-                    using rank_type = int;
-                    using tag_type = typename shared_state_type::tag_type;
-                    using request = request_t;
-                    using status = status_t;
-                    template<typename T>
-                    using future = future_t<T>;
-                    template<typename T>
-                    using allocator_type  = ghex::tl::libfabric::rma::allocator<T>;
+                    using thread_token           = typename thread_primitives_type::token;
+                    using state_type             = communicator_state<ThreadPrimitives>;
+                    using rank_type              = int;
+                    using tag_type               = typename shared_state_type::tag_type;
+                    using request                = request_t;
+                    template<typename T> using future = future_t<T>;
+                    template<typename T> using allocator_type  = ghex::tl::libfabric::rma::allocator<T>;
 
                     using address_type    = rank_type;
                     using request_cb_type = request_cb<ThreadPrimitives>;
