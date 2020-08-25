@@ -40,7 +40,9 @@ namespace gridtools {
                     using request_cb_state_type  = typename request_cb_type::state_type;
                     using message_type           = typename request_cb_type::message_type;
                     using progress_status        = gridtools::ghex::tl::cb::progress_status;
-                    
+                    template<typename T>
+                    using allocator_type         = std::allocator<T>;
+
                     worker_type*  m_recv_worker;
                     worker_type*  m_send_worker;
                     ucp_worker_h  m_ucp_rw;
@@ -68,7 +70,7 @@ namespace gridtools {
                    
                     /** @brief send a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param dst the destination rank
                      * @param tag the communication tag
@@ -105,7 +107,7 @@ namespace gridtools {
 		
                     /** @brief receive a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param src the source rank
                      * @param tag the communication tag

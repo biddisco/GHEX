@@ -8,11 +8,15 @@ if(USE_GPU)
 endif()
 
 cmake_policy(SET CMP0048 NEW)
+#cmake_policy(SET CMP0074 NEW)
+
+include(CTest)
+enable_testing()
 
 set(USE_GPU "OFF" CACHE BOOL "use cuda")
 set(USE_HYBRID_TESTS "ON" CACHE BOOL "run gpu+cpu tests")
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic") # Last option is because of a problem with GCC9. Try to remove with more releases of the compiler
 
@@ -28,7 +32,7 @@ set(GHEX_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${GHEX_MODULE_PATH}")
 
 find_package(MPI REQUIRED)
-find_package(Boost REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 
 # GridTools uses BUILD_TESTING, cache it and reset after (not required with GT 2.0)
 set(build_testing ${BUILD_TESTING})
@@ -56,6 +60,12 @@ endif()
 set(GHEX_USE_PMIX OFF CACHE BOOL "Set to true to use PMIx process management")
 if (GHEX_USE_PMIX)
     find_package(PMIx REQUIRED)
+endif()
+
+option(GHEX_USE_LIBFABRIC "Enable/Disable the use of Libfabric transport" OFF)
+if (GHEX_USE_LIBFABRIC)
+    find_package(Libfabric REQUIRED)
+    include(GHEX_SetupLibfabric)
 endif()
 
 set(GHEX_SKIP_MPICXX OFF CACHE BOOL "True if your compiler wrapper includes MPI already (as CRAY PE for instance)")
@@ -89,16 +99,22 @@ if (GHEX_USE_UCP)
         target_link_libraries(ghexlib INTERFACE PMIx::libpmix)
     endif()
 endif()
+if (GHEX_USE_LIBFABRIC)
+    target_link_libraries(ghexlib INTERFACE libfabric::libfabric Boost::system)
+    if (GHEX_USE_PMIX)
+        target_link_libraries(ghexlib INTERFACE PMIx::libpmix)
+    endif()
+endif()
 if (GHEX_ENABLE_ATLAS_BINDINGS)
     target_link_libraries(ghexlib INTERFACE atlas)
 endif()
 target_compile_features(ghexlib INTERFACE cxx_std_14)
 
-# Enable CDash dashboard testing integration
-include(CTest)
-
 # Enable adding of tests etc
 enable_testing()
+
+# Enable CDash dashboard testing integration
+include(CTest)
 
 if (GHEX_BUILD_TESTS OR GHEX_BUILD_BENCHMARKS)
     include(FetchContent)
@@ -122,6 +138,11 @@ if (GHEX_BUILD_TESTS OR GHEX_BUILD_BENCHMARKS)
         if (GHEX_USE_UCP)
             add_library(gtest_main_ucx ./utils/gtest_main_ucx.cpp)
             target_link_libraries(gtest_main_ucx GTest::gtest ghexlib)
+        endif()
+
+        if (GHEX_USE_LIBFABRIC)
+            add_library(gtest_main_libfabric ./utils/gtest_main_libfabric.cpp)
+            target_link_libraries(gtest_main_libfabric GTest::gtest ghexlib)
         endif()
 
         add_subdirectory(tests)

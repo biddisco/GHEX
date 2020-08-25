@@ -33,7 +33,6 @@ foreach (_t ${_tests})
     )
 endforeach()
 
-
 if (GHEX_USE_UCP)
     set(_variants_ucx serial serial_split threads async_async async_deferred)
 
@@ -59,6 +58,30 @@ if (GHEX_USE_UCP)
     endforeach()
 endif()
 
+if (GHEX_USE_LIBFABRIC)
+    set(_variants_libfabric serial serial_split threads async_async async_deferred)
+
+    foreach(_var ${_variants_libfabric})
+        string(TOUPPER ${_var} define)
+        set(_t communication_object_2_${_var}_libfabric)
+        add_executable(${_t} communication_object_2.cpp )
+        target_compile_definitions(${_t} PUBLIC GHEX_TEST_${define} GHEX_TEST_USE_LIBFABRIC)
+        target_link_libraries(${_t} gtest_main_libfabric)
+        add_test(
+            NAME ${_t}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}> ${MPIEXEC_POSTFLAGS}
+        )
+
+        set(_t communication_object_2_${_var}_vector_libfabric)
+        add_executable(${_t} communication_object_2.cpp )
+        target_compile_definitions(${_t} PUBLIC GHEX_TEST_${define}_VECTOR GHEX_TEST_USE_LIBFABRIC)
+        target_link_libraries(${_t} gtest_main_libfabric)
+        add_test(
+            NAME ${_t}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}> ${MPIEXEC_POSTFLAGS}
+        )
+    endforeach()
+endif()
 
 set(_variants serial serial_split threads async_async async_deferred)
 foreach(_var ${_variants})
@@ -137,6 +160,27 @@ foreach (_t ${_tests_gt})
     )
 endforeach()
 
+set(_tests_unstructured unstructured_user_concepts)
+foreach (_t ${_tests_unstructured})
+    add_executable(${_t} ${_t}.cpp)
+    target_link_libraries(${_t} gtest_main_mt)
+    add_test(
+        NAME ${_t}.cpp
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}> ${MPIEXEC_POSTFLAGS}
+    )
+endforeach()
+
+set(_tests_unstructured_oversubscription unstructured_user_concepts)
+foreach (_t ${_tests_unstructured_oversubscription})
+    add_executable(${_t}_oversubscription ${_t}.cpp)
+    target_compile_definitions(${_t}_oversubscription PUBLIC GHEX_TEST_UNSTRUCTURED_OVERSUBSCRIPTION)
+    target_link_libraries(${_t}_oversubscription gtest_main_mt)
+    add_test(
+        NAME ${_t}_oversubscription.cpp
+        COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}_oversubscription> ${MPIEXEC_POSTFLAGS}
+    )
+endforeach()
+
 if (GHEX_ENABLE_ATLAS_BINDINGS)
     set(_tests_atlas atlas_integration atlas_integration_comm_2)
     foreach (_t ${_tests_atlas})
@@ -175,3 +219,4 @@ if (USE_GPU)
 endif()
 
 add_subdirectory(transport)
+add_subdirectory(cubed_sphere)

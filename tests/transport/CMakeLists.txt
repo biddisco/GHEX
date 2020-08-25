@@ -21,7 +21,27 @@ foreach(t_ ${_tests})
             COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${t_}_ucx> ${MPIEXEC_POSTFLAGS}
         )
     endif()
+
+    if (GHEX_USE_LIBFABRIC)
+        add_executable( ${t_}_libfabric ./${t_}.cpp )
+        target_link_libraries(${t_}_libfabric gtest_main_libfabric)
+        target_compile_definitions(${t_}_libfabric PUBLIC GHEX_TEST_USE_LIBFABRIC)
+        if (GHEX_USE_PMIX)
+            target_compile_definitions(${t_}_libfabric PRIVATE GHEX_USE_PMI)
+        endif()
+        add_test(
+            NAME ${t_}_libfabric
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${t_}_libfabric> ${MPIEXEC_POSTFLAGS}
+        )
+    endif()
+
 endforeach(t_ ${_tests})
+
+if (GHEX_USE_LIBFABRIC)
+    add_executable( test_fancy_pointer test_fancy_pointer.cpp )
+    target_link_libraries(test_fancy_pointer gtest_main_libfabric)
+    target_compile_definitions(test_fancy_pointer PUBLIC GHEX_TEST_USE_LIBFABRIC)
+endif()
 
 if (GHEX_USE_UCP)
     set(_tests_ucx test_ucx_context)

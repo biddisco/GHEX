@@ -10,14 +10,28 @@
  */
 
 #include <ghex/structured/pattern.hpp>
+#include <ghex/structured/regular/domain_descriptor.hpp>
+#include <ghex/structured/regular/halo_generator.hpp>
+#include <ghex/structured/regular/field_descriptor.hpp>
 #include <ghex/communication_object_2.hpp>
-#ifndef GHEX_TEST_USE_UCX
-#include <ghex/transport_layer/mpi/context.hpp>
-#else
-#include <ghex/transport_layer/ucx/context.hpp>
-#endif
+
 #include <ghex/threads/atomic/primitives.hpp>
 #include <ghex/threads/std_thread/primitives.hpp>
+
+#ifdef GHEX_TEST_USE_UCX
+#include <ghex/transport_layer/ucx/context.hpp>
+using transport = gridtools::ghex::tl::ucx_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#else
+#include <ghex/transport_layer/mpi/context.hpp>
+using transport = gridtools::ghex::tl::mpi_tag;
+using threading = gridtools::ghex::threads::std_thread::primitives;
+#endif
+
 #include <array>
 #include <iomanip>
 
@@ -40,15 +54,6 @@ __global__ void print_kernel() {
 }
 #endif
 
-#ifndef GHEX_TEST_USE_UCX
-using transport = gridtools::ghex::tl::mpi_tag;
-using threading = gridtools::ghex::threads::std_thread::primitives;
-//using threading = gridtools::ghex::threads::atomic::primitives;
-#else
-using transport = gridtools::ghex::tl::ucx_tag;
-using threading = gridtools::ghex::threads::std_thread::primitives;
-//using threading = gridtools::ghex::threads::atomic::primitives;
-#endif
 using context_type = gridtools::ghex::tl::context<transport, threading>;
 
 template<typename T, std::size_t N>
@@ -73,9 +78,10 @@ std::ostream& operator<<(std::ostream& os, const array_type<T,N>& arr)
 }
 
 
-using domain_descriptor_type = gridtools::ghex::structured::domain_descriptor<int,3>;
+using domain_descriptor_type = gridtools::ghex::structured::regular::domain_descriptor<int,3>;
+using halo_generator_type = gridtools::ghex::structured::regular::halo_generator<int,3>;
 template<typename T, typename Arch, int... Is>
-using field_descriptor_type  = gridtools::ghex::structured::simple_field_wrapper<T,Arch,domain_descriptor_type, Is...>;
+using field_descriptor_type  = gridtools::ghex::structured::regular::field_descriptor<T,Arch,domain_descriptor_type, Is...>;
 
 
 template<typename T, typename Domain, typename Field>
@@ -195,8 +201,8 @@ TEST(communication_object_2, exchange)
 #endif
 
     // local portion per domain
-    const std::array<int,3> local_ext{10,15,20};
-    //const std::array<int,3> local_ext{4,3,2};
+    //const std::array<int,3> local_ext{10,15,20};
+    const std::array<int,3> local_ext{4,3,2};
     const std::array<bool,3> periodic{true,true,true};
 
     // decomposition: 4 domains in x-direction, 1 domain in z-direction, rest in y-direction
@@ -269,8 +275,8 @@ TEST(communication_object_2, exchange)
     // halo generators
     std::array<int,6> halos1{0,0,1,0,1,2};
     std::array<int,6> halos2{2,2,2,2,2,2};
-    auto halo_gen1 = domain_descriptor_type::halo_generator_type(g_first, g_last, halos1, periodic);
-    auto halo_gen2 = domain_descriptor_type::halo_generator_type(g_first, g_last, halos2, periodic);
+    auto halo_gen1 = halo_generator_type(g_first, g_last, halos1, periodic);
+    auto halo_gen2 = halo_generator_type(g_first, g_last, halos2, periodic);
 
     // make patterns
     auto pattern1 = gridtools::ghex::make_pattern<gridtools::ghex::structured::grid>(context, halo_gen1, local_domains);
@@ -279,12 +285,12 @@ TEST(communication_object_2, exchange)
     using pattern_type = decltype(pattern1);
 
     // wrap raw fields
-    auto field_1a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0].domain_id(), field_1a_raw.data(), offset, local_ext_buffer);
-    auto field_1b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1].domain_id(), field_1b_raw.data(), offset, local_ext_buffer);
-    auto field_2a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0].domain_id(), field_2a_raw.data(), offset, local_ext_buffer);
-    auto field_2b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1].domain_id(), field_2b_raw.data(), offset, local_ext_buffer);
-    auto field_3a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0].domain_id(), field_3a_raw.data(), offset, local_ext_buffer);
-    auto field_3b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1].domain_id(), field_3b_raw.data(), offset, local_ext_buffer);
+    auto field_1a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0], field_1a_raw.data(), offset, local_ext_buffer);
+    auto field_1b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1], field_1b_raw.data(), offset, local_ext_buffer);
+    auto field_2a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0], field_2a_raw.data(), offset, local_ext_buffer);
+    auto field_2b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1], field_2b_raw.data(), offset, local_ext_buffer);
+    auto field_3a = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[0], field_3a_raw.data(), offset, local_ext_buffer);
+    auto field_3b = gridtools::ghex::wrap_field<gridtools::ghex::cpu,2,1,0>(local_domains[1], field_3b_raw.data(), offset, local_ext_buffer);
 
     // fill arrays
     fill_values<T1>(local_domains[0], field_1a);
@@ -361,13 +367,13 @@ TEST(communication_object_2, exchange)
 #endif
 
         // wrap raw fields
-        auto field_1a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0].domain_id(), gpu_1a_raw, offset, local_ext_buffer);
-        auto field_2a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0].domain_id(), gpu_2a_raw, offset, local_ext_buffer);
-        auto field_3a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0].domain_id(), gpu_3a_raw, offset, local_ext_buffer);
+        auto field_1a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0], gpu_1a_raw, offset, local_ext_buffer);
+        auto field_2a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0], gpu_2a_raw, offset, local_ext_buffer);
+        auto field_3a_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[0], gpu_3a_raw, offset, local_ext_buffer);
 #ifndef GHEX_HYBRID_TESTS
-        auto field_1b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1].domain_id(), gpu_1b_raw, offset, local_ext_buffer);
-        auto field_2b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1].domain_id(), gpu_2b_raw, offset, local_ext_buffer);
-        auto field_3b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1].domain_id(), gpu_3b_raw, offset, local_ext_buffer);
+        auto field_1b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1], gpu_1b_raw, offset, local_ext_buffer);
+        auto field_2b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1], gpu_2b_raw, offset, local_ext_buffer);
+        auto field_3b_gpu = gridtools::ghex::wrap_field<gridtools::ghex::gpu,2,1,0>(local_domains[1], gpu_3b_raw, offset, local_ext_buffer);
 #endif
 
 #ifdef __CUDACC__
@@ -425,7 +431,7 @@ TEST(communication_object_2, exchange)
         pattern2(field_2b_gpu),
         pattern1(field_3a_gpu),
         pattern1(field_3b_gpu)};
-    co.exchange(field_vec.data(), field_vec.size()).wait();
+    co.exchange(field_vec.begin(), field_vec.end()).wait();
 #endif
 
 #ifdef GHEX_TEST_SERIAL_SPLIT
@@ -457,8 +463,8 @@ TEST(communication_object_2, exchange)
         pattern1(field_1b_gpu),
         pattern2(field_2b_gpu),
         pattern1(field_3b_gpu)};
-    auto h1 = co_1.exchange(field_vec_a.data(), field_vec_a.size());
-    auto h2 = co_2.exchange(field_vec_b.data(), field_vec_b.size());
+    auto h1 = co_1.exchange(field_vec_a.begin(), field_vec_a.end());
+    auto h2 = co_2.exchange(field_vec_b.begin(), field_vec_b.end());
     // ... overlap communication (packing, posting) with computation here
     // wait and upack:
     h1.wait();
@@ -497,7 +503,7 @@ TEST(communication_object_2, exchange)
     auto func = [&context](field_vec_type& vec)
     {
         auto co_ = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
-        co_.exchange(vec.data(), vec.size()).wait();
+        co_.exchange(vec.begin(), vec.end()).wait();
     };
     // packing and posting may be done concurrently
     // waiting and unpacking may be done concurrently
@@ -549,7 +555,7 @@ TEST(communication_object_2, exchange)
     auto func = [&context](field_vec_type& vec)
     {
         auto co_ = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
-        co_.exchange(vec.data(), vec.size()).wait();
+        co_.exchange(vec.begin(), vec.end()).wait();
     };
     // packing and posting may be done concurrently
     // waiting and unpacking may be done concurrently
@@ -607,7 +613,7 @@ TEST(communication_object_2, exchange)
     using field_vec_type = std::vector<std::remove_reference_t<decltype(pattern1(field_1a_gpu))>>;
     auto func_h = [](auto co_, field_vec_type& vec)
     {
-        return co_->exchange(vec.data(), vec.size());
+        return co_->exchange(vec.begin(), vec.end());
     };
     auto token = context.get_token();
     auto co_1 = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(token));
@@ -741,14 +747,27 @@ TEST(communication_object_2, exchange)
 #ifdef GHEX_TEST_SERIAL
     // blocking variant
     auto co = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
-    co.bexchange(
+    using bi1_t = typename std::remove_reference<decltype(pattern1(field_1a))>::type;
+    using bi2_t = typename std::remove_reference<decltype(pattern1(field_2a))>::type;
+    using bi3_t = typename std::remove_reference<decltype(pattern1(field_3a))>::type;
+    std::vector<bi1_t> xx1{
+        pattern1(field_1a),
+        pattern1(field_1b)};
+    std::vector<bi2_t> xx2{
+        pattern2(field_2a),
+        pattern2(field_2b)};
+    std::vector<bi3_t> xx3{ 
+        pattern1(field_3a),
+        pattern1(field_3b)};
+    co.exchange(xx1.begin(), xx1.end(), xx2.begin(), xx2.end(), xx3.begin(),xx3.end()).wait();
+    /*co.bexchange(
         pattern1(field_1a),
         pattern1(field_1b),
         pattern2(field_2a),
         pattern2(field_2b),
         pattern1(field_3a),
         pattern1(field_3b)
-    );
+    );*/
 #endif
 #ifdef GHEX_TEST_SERIAL_VECTOR
     auto co = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
@@ -759,7 +778,7 @@ TEST(communication_object_2, exchange)
         pattern2(field_2b),
         pattern1(field_3a),
         pattern1(field_3b)};
-    co.exchange(field_vec.data(), field_vec.size()).wait();
+    co.exchange(field_vec.begin(), field_vec.end()).wait();
 #endif
 
 #ifdef GHEX_TEST_SERIAL_SPLIT
@@ -786,8 +805,8 @@ TEST(communication_object_2, exchange)
         pattern1(field_1b),
         pattern2(field_2b),
         pattern1(field_3b)};
-    auto h1 = co_1.exchange(field_vec_a.data(), field_vec_a.size());
-    auto h2 = co_2.exchange(field_vec_b.data(), field_vec_b.size());
+    auto h1 = co_1.exchange(field_vec_a.begin(), field_vec_a.end());
+    auto h2 = co_2.exchange(field_vec_b.begin(), field_vec_b.end());
     // ... overlap communication (packing, posting) with computation here
     // wait and upack:
     h1.wait();
@@ -819,7 +838,7 @@ TEST(communication_object_2, exchange)
     auto func = [&context](field_vec_type& vec)
     {
         auto co_ = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
-        co_.exchange(vec.data(), vec.size()).wait();
+        co_.exchange(vec.begin(), vec.end()).wait();
     };
     // packing and posting may be done concurrently
     // waiting and unpacking may be done concurrently
@@ -864,7 +883,7 @@ TEST(communication_object_2, exchange)
     auto func = [&context](field_vec_type& vec)
     {
         auto co_ = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(context.get_token()));
-        co_.exchange(vec.data(), vec.size()).wait();
+        co_.exchange(vec.begin(), vec.end()).wait();
     };
     // packing and posting may be done concurrently
     // waiting and unpacking may be done concurrently
@@ -915,7 +934,7 @@ TEST(communication_object_2, exchange)
     using field_vec_type = std::vector<std::remove_reference_t<decltype(pattern1(field_1a))>>;
     auto func_h = [](auto co_, field_vec_type& vec)
     {
-        return co_->exchange(vec.data(), vec.size());
+        return co_->exchange(vec.begin(), vec.end());
     };
     auto token = context.get_token();
     auto co_1 = gridtools::ghex::make_communication_object<pattern_type>(context.get_communicator(token));

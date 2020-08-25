@@ -19,6 +19,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -38,7 +41,7 @@ auto thread_func(Context&& context, int nthreads) {
         auto token = context.get_token();
         auto comm = context.get_communicator(token);
 
-        for(int i=0; i<50; i++)  {
+        for(int i=0; i<10; i++)  {
             barrier_count++;
             comm.barrier();
             EXPECT_EQ(barrier_count, (i+1)*nthreads);

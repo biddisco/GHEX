@@ -20,7 +20,7 @@ namespace gridtools {
             /** @brief mpi transport tag */
             struct mpi_tag {};
             struct ucx_tag {};
-
+            struct libfabric_tag {};
 
         } // namespace tl
 

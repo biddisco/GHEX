@@ -17,6 +17,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -34,8 +37,8 @@ TEST(transport, barrier) {
     gridtools::ghex::timer timer;
 
     timer.tic();
-    for(int i=0; i<100000; i++)  {
-        comm.barrier();
+    for(int i=0; i<100; i++)  {
+      comm.barrier();
     }
     const auto t = timer.stoc();
     if(rank==0)

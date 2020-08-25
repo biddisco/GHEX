@@ -1,4 +1,4 @@
-/* 
+/*
  * GridTools
  * 
  * Copyright (c) 2014-2020, ETH Zurich
@@ -20,6 +20,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -112,7 +115,7 @@ auto test_unidirectional(Context& context) {
         std::cout << "***********\n";
 #endif
     }
-    return std::move(rmsg);
+    return rmsg;
 }
 
 template<typename MsgType, typename Context>
@@ -130,11 +133,13 @@ auto test_bidirectional(Context& context) {
     typename comm_type::template future<void> rfut;
 
     if ( rank == 0 ) {
-        comm.send(smsg, 1, 1).get();
+        auto f = comm.send(smsg, 1, 1);
         rfut = comm.recv(rmsg, 1, 2);
+        f.get();
     } else if (rank == 1) {
-        comm.send(smsg, 0, 2).get();
+        auto f = comm.send(smsg, 0, 2);
         rfut = comm.recv(rmsg, 0, 1);
+        f.get();
     }
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
@@ -152,7 +157,7 @@ auto test_bidirectional(Context& context) {
     std::cout << "***********\n";
 #endif
 
-    return std::move(rmsg);
+    return rmsg;
 }
 
 template<typename MsgType, typename Context>
@@ -162,10 +167,11 @@ auto test_unidirectional_cb(Context& context) {
 
     auto comm = context.get_communicator(token);
 
-    using allocator_type  = std::allocator<unsigned char>;
-    using smsg_type       = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
-    using comm_type       = std::remove_reference_t<decltype(comm)>;
-    using cb_msg_type     = typename comm_type::message_type;
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type::template allocator_type<unsigned char>;
+    using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
+    using cb_msg_type    = typename comm_type::message_type;
+    using tag_type       = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -179,7 +185,7 @@ auto test_unidirectional_cb(Context& context) {
         auto status = comm.progress();
         EXPECT_EQ(status.num(), 0);
     } else {
-        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, int /* tag */) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, tag_type /* tag */) { arrived = true; });
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         int c = 0;
@@ -198,7 +204,7 @@ auto test_unidirectional_cb(Context& context) {
         auto status = comm.progress();
         EXPECT_EQ(status.num(), 0);
     }
-    return std::move(rmsg);
+    return rmsg;
 }
 
 template<typename MsgType, typename Context>
@@ -212,6 +218,7 @@ auto test_bidirectional_cb(Context& context) {
     using smsg_type       = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
     using comm_type       = std::remove_reference_t<decltype(comm)>;
     using cb_msg_type     = typename comm_type::message_type;
+    using tag_type        = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -221,11 +228,11 @@ auto test_bidirectional_cb(Context& context) {
 
     if ( rank == 0 ) {
         auto fut = comm.send(smsg, 1, 1);
-        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     } else if (rank == 1) {
         auto fut = comm.send(smsg, 0, 2);
-        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     }
 
@@ -248,7 +255,7 @@ auto test_bidirectional_cb(Context& context) {
     auto status = comm.progress();
     EXPECT_EQ(status.num(), 0);
 
-    return std::move(rmsg);
+    return rmsg;
 }
 
 

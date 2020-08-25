@@ -19,6 +19,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -28,8 +31,9 @@ using threading = gridtools::ghex::threads::none::primitives;
 using context_type = gridtools::ghex::tl::context<transport, threading>;
 using communicator_type = typename context_type::communicator_type;
 using msg_type = typename communicator_type::message_type;
+using allocator_type = typename communicator_type:: template allocator_type<unsigned char>;
 
-#define NITERS 100000
+#define NITERS 100
 
 template<typename Message>
 struct message_factory {
@@ -82,10 +86,11 @@ TEST(transport, ring_send_recv_ft)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
 
     test_ring_send_recv_ft< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_ft< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_ft< message_factory<msg_type> >(comm, sizeof(int));
 }
 
@@ -94,6 +99,7 @@ TEST(transport, ring_send_recv_ft)
 template<typename Factory, typename CommType>
 auto test_ring_send_recv_cb(CommType& comm, std::size_t buffer_size) 
 {
+    using tag_type = typename CommType::tag_type;
     gridtools::ghex::timer timer;
     int *data_ptr;
     int rank = comm.rank();
@@ -114,8 +120,8 @@ auto test_ring_send_recv_cb(CommType& comm, std::size_t buffer_size)
     volatile int sent = 0;
     for(int i=0; i<NITERS; i++){
 
-        auto send_callback = [&](communicator_type::message_type, int, int) {sent++;};
-        auto recv_callback = [&](communicator_type::message_type, int, int) {received++;};    
+        auto send_callback = [&](communicator_type::message_type, int, tag_type) {sent++;};
+        auto recv_callback = [&](communicator_type::message_type, int, tag_type) {received++;};    
 
         comm.recv(rmsg, rpeer_rank, 1, recv_callback);
         comm.send(smsg, speer_rank, 1, send_callback);
@@ -134,6 +140,7 @@ auto test_ring_send_recv_cb(CommType& comm, std::size_t buffer_size)
     if(rank==0)
     {
         std::cout << "time:       " << t/1000000 << "s\n";
+        std::cout << "************" << "\n\n\n\n\n\n";
     }
 }
 
@@ -143,16 +150,18 @@ TEST(transport, ring_send_recv_cb)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
 
     test_ring_send_recv_cb< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb< message_factory<msg_type> >(comm, sizeof(int));
 }
 
 template<typename Factory, typename CommType>
 auto test_ring_send_recv_cb_disown(CommType& comm, std::size_t buffer_size) 
 {
+    using tag_type = typename CommType::tag_type;
     gridtools::ghex::timer timer;
     int rank = comm.rank();
     int size = comm.size();
@@ -165,8 +174,8 @@ auto test_ring_send_recv_cb_disown(CommType& comm, std::size_t buffer_size)
     volatile int received = 0;
     volatile int sent = 0;
 
-    auto send_callback = [&](communicator_type::message_type, int, int) {sent++;};
-    auto recv_callback = [&](communicator_type::message_type mrmsg, int, int) 
+    auto send_callback = [&](communicator_type::message_type, int, tag_type) {sent++;};
+    auto recv_callback = [&](communicator_type::message_type mrmsg, int, tag_type) 
         {
             received++;
             int *data_ptr = reinterpret_cast<int*>(mrmsg.data());
@@ -198,23 +207,24 @@ TEST(transport, ring_send_recv_cb_disown)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
 
     test_ring_send_recv_cb_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int));
+    test_ring_send_recv_cb_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int));
     test_ring_send_recv_cb_disown< message_factory<msg_type> >(comm, sizeof(int));
 }
 
 struct recursive_functor {
     communicator_type& comm;
     int rank;
-    int tag;
+    communicator_type::tag_type tag;
     typename communicator_type::request_cb& rreq;
-    std::function<void(msg_type&, int, int)> func;
+    std::function<void(msg_type&, int, communicator_type::tag_type)> func;
     // we need a counter here so we can handle immediate callbacks
     int counter = 0;
-
-    void operator()(msg_type m, int r, int t) {
+    int c2 = 0;
+    void operator()(msg_type m, int r, communicator_type::tag_type t) {
         func(m,r,t);
         counter = 0;
         auto rr = comm.recv(std::move(m), rank, tag, *this);
@@ -226,8 +236,9 @@ struct recursive_functor {
 };
 
 template<typename Factory, typename CommType>
-auto test_ring_send_recv_cb_resubmit(CommType& comm, std::size_t buffer_size) 
+auto test_ring_send_recv_cb_resubmit(CommType& comm, std::size_t buffer_size, int tag)
 {
+    using tag_type = typename CommType::tag_type;
     gridtools::ghex::timer timer;
     int *data_ptr;
     int rank = comm.rank();
@@ -243,22 +254,22 @@ auto test_ring_send_recv_cb_resubmit(CommType& comm, std::size_t buffer_size)
     volatile int received = 0;
 
     typename communicator_type::request_cb rreq;
-    auto recv_callback = [&received,rpeer_rank](communicator_type::message_type& rmsg, int, int) 
+    auto recv_callback = [&received,rpeer_rank](communicator_type::message_type& rmsg, int, tag_type)
         {
             received++;
             int *data_ptr = reinterpret_cast<int*>(rmsg.data());
             EXPECT_TRUE(*data_ptr == rpeer_rank);
             *data_ptr = -1;
         };
-    auto recursive_recv_callback = recursive_functor{comm,rpeer_rank,1,rreq,recv_callback};
+    auto recursive_recv_callback = recursive_functor{comm,rpeer_rank,tag,rreq,recv_callback};
 
     data_ptr = reinterpret_cast<int*>(smsg.data());
     *data_ptr = rank;
 
 
-    rreq = comm.recv(rmsg, rpeer_rank, 1, recursive_recv_callback);
+    rreq = comm.recv(rmsg, rpeer_rank, tag, recursive_recv_callback);
     for(int i=0; i<NITERS; i++){
-        comm.send(smsg, speer_rank, 1).wait();
+        comm.send(smsg, speer_rank, tag).wait();
         while(received<=i) comm.progress();
     }
 
@@ -278,16 +289,18 @@ TEST(transport, ring_send_recv_cb_resubmit)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
 
-    test_ring_send_recv_cb_resubmit< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit< message_factory<msg_type> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit< message_factory<std::vector<unsigned char>> >(comm, sizeof(int),1);
+    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int),2);
+    test_ring_send_recv_cb_resubmit< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int),3);
+    test_ring_send_recv_cb_resubmit< message_factory<msg_type> >(comm, sizeof(int),4);
 }
 
 template<typename Factory, typename CommType>
-auto test_ring_send_recv_cb_resubmit_disown(CommType& comm, std::size_t buffer_size) 
+auto test_ring_send_recv_cb_resubmit_disown(CommType& comm, std::size_t buffer_size, int tag)
 {
+    using tag_type = typename CommType::tag_type;
     gridtools::ghex::timer timer;
     int *data_ptr;
     int rank = comm.rank();
@@ -302,22 +315,22 @@ auto test_ring_send_recv_cb_resubmit_disown(CommType& comm, std::size_t buffer_s
     volatile int received = 0;
 
     typename communicator_type::request_cb rreq;
-    auto recv_callback = [&received,rpeer_rank](communicator_type::message_type& rmsg, int, int) 
+    auto recv_callback = [&received,rpeer_rank](communicator_type::message_type& rmsg, int, tag_type)
         {
             received++;
             int *data_ptr = reinterpret_cast<int*>(rmsg.data());
             EXPECT_TRUE(*data_ptr == rpeer_rank);
             *data_ptr = -1;
         };
-    auto recursive_recv_callback = recursive_functor{comm,rpeer_rank,1,rreq,recv_callback};
+    auto recursive_recv_callback = recursive_functor{comm,rpeer_rank,tag,rreq,recv_callback};
 
     data_ptr = reinterpret_cast<int*>(smsg.data());
     *data_ptr = rank;
 
 
-    rreq = comm.recv(Factory::make(buffer_size), rpeer_rank, 1, recursive_recv_callback);
+    rreq = comm.recv(Factory::make(buffer_size), rpeer_rank, tag, recursive_recv_callback);
     for(int i=0; i<NITERS; i++){
-        comm.send(smsg, speer_rank, 1).wait();
+        comm.send(smsg, speer_rank, tag).wait();
         while(received<=i) comm.progress();
     }
 
@@ -337,10 +350,12 @@ TEST(transport, ring_send_recv_cb_resubmit_disown)
     auto& context = *context_ptr;
     auto token = context.get_token();
     auto comm = context.get_communicator(token);
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = typename comm_type:: template allocator_type<unsigned char>;
 
-    test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<>> >(comm, sizeof(int));
-    test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int));
+    test_ring_send_recv_cb_resubmit_disown< message_factory<std::vector<unsigned char>> >(comm, sizeof(int),5);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::message_buffer<allocator_type>> >(comm, sizeof(int),6);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<gridtools::ghex::tl::shared_message_buffer<allocator_type>> >(comm, sizeof(int),7);
+    test_ring_send_recv_cb_resubmit_disown< message_factory<msg_type> >(comm, sizeof(int),8);
 }
 

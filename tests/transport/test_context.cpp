@@ -8,16 +8,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  * 
  */
-#include <ghex/threads/std_thread/primitives.hpp>
-#include <ghex/threads/atomic/primitives.hpp>
-#include <iostream>
+#include <vector>
 #include <iomanip>
+#include <iostream>
+//
+#include <ghex/threads/atomic/primitives.hpp>
+#include <ghex/threads/std_thread/primitives.hpp>
+#include <ghex/transport_layer/libfabric/print.hpp>
 
 #include <gtest/gtest.h>
 
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -27,10 +33,12 @@ using threading_std = gridtools::ghex::threads::std_thread::primitives;
 using threading_atc = gridtools::ghex::threads::atomic::primitives;
 using threading = threading_std;
 
-const std::size_t size = 1024;
+const std::size_t size = 8;
+
+static hpx::debug::enable_print<false> testctx_deb("TEST_CX");
 
 TEST(context, multi) {
-    const int num_threads = 4;
+    const int num_threads = 2;
     auto context_ptr_1 = gridtools::ghex::tl::context_factory<transport,threading>::create(num_threads, MPI_COMM_WORLD);
     auto& context_1 = *context_ptr_1;
     auto context_ptr_2 = gridtools::ghex::tl::context_factory<transport,threading>::create(num_threads, MPI_COMM_WORLD);
@@ -54,11 +62,13 @@ TEST(context, multi) {
 
         if (comm_1.rank() == 0) {
             const int payload_offset = 1+token_1.id();
+            testctx_deb.debug(hpx::debug::str<>("Payload offset 1"), payload_offset);
             for (unsigned int i=0; i<size; ++i)
                 *reinterpret_cast<int*>(msg_1.data()+i*sizeof(int)) = i+payload_offset;
         }
         if (comm_2.rank() == 0) {
             const int payload_offset = 2+token_2.id();
+            testctx_deb.debug(hpx::debug::str<>("Payload offset 2"), payload_offset);
             for (unsigned int i=0; i<size; ++i)
                 *reinterpret_cast<int*>(msg_2.data()+i*sizeof(int)) = i+payload_offset;
         }
@@ -69,43 +79,87 @@ TEST(context, multi) {
         future fut_1;
         int counter_1 = 0;
         if (comm_1.rank() == 0) {
-            for (rank_type i=1; i<comm_1.size(); ++i)
-                comm_1.send(msg_1, i, token_1.id(), [&counter_1](msg_type, rank_type, tag_type) { ++counter_1; });
+            for (rank_type i=1; i<comm_1.size(); ++i) {
+                auto id=token_1.id();
+                testctx_deb.debug(hpx::debug::str<>("comm_1 Send"), "from", comm_1.rank(), "to", i, "id", id);
+                comm_1.send(msg_1, i, token_1.id(), [&counter_1, &comm_1, id](msg_type, rank_type, tag_type) {
+                    ++counter_1;
+                    testctx_deb.debug(hpx::debug::str<>("comm_1 Send"), "id", id, "completion", counter_1);
+                });
+            }
         }
         else {
+            testctx_deb.debug(hpx::debug::str<>("comm_1 Recv"), "rank", comm_1.rank(), "id", token_1.id());
             fut_1 = comm_1.recv(msg_1, 0, token_1.id());
         }
+        testctx_deb.debug(hpx::debug::str<>("comm_1"), "midpoint");
+
         future fut_2;
         int counter_2 = 0;
         if (comm_2.rank() == 0) {
-            for (rank_type i=1; i<comm_2.size(); ++i)
-                comm_2.send(msg_2, i, token_2.id(), [&counter_2](msg_type, rank_type, tag_type) { ++counter_2; });
+            for (rank_type i=1; i<comm_2.size(); ++i) {
+                auto id=token_2.id();
+                testctx_deb.debug(hpx::debug::str<>("comm_2 Send"), "from", comm_2.rank(), "to", i, "id", id);
+                comm_2.send(msg_2, i, token_2.id(), [&counter_2, &comm_2, id](msg_type, rank_type, tag_type) {
+                    ++counter_2;
+                    testctx_deb.debug(hpx::debug::str<>("comm_2 Send"), "id", id, "completion", counter_2);
+                });
+            }
         }
         else {
+            testctx_deb.debug(hpx::debug::str<>("comm_2 Recv"), "rank", comm_2.rank(), "id", token_2.id());
             fut_2 = comm_2.recv(msg_2, 0, token_2.id());
         }
+        testctx_deb.debug(hpx::debug::str<>("comm_2"), "midpoint");
 
 
-        if (comm_1.rank() == 0)
-            while(counter_1 != comm_1.size()-1) { comm_1.progress(); }
-        if (comm_2.rank() == 0)
+        if (comm_1.rank() == 0) {
+            while(counter_1 != comm_1.size()-1) {
+                comm_1.progress();
+            }
+            testctx_deb.debug(hpx::debug::str<>("Rank 0"), "comm_1 sends complete");
+        }
+
+        if (comm_2.rank() == 0) {
             while(counter_2 != comm_2.size()-1) { comm_2.progress(); }
+            testctx_deb.debug(hpx::debug::str<>("Rank 0"), "comm_2 sends complete");
+        }
 
-        if (comm_2.rank() != 0)
+        if (comm_2.rank() != 0) {
             fut_2.wait();
-        if (comm_1.rank() != 0)
+            testctx_deb.debug(hpx::debug::str<>("Rank !0"), "comm_2 futures complete");
+        }
+
+        if (comm_1.rank() != 0) {
             fut_1.wait();
-        
+            testctx_deb.debug(hpx::debug::str<>("Rank !0"), "comm_1 futures complete");
+        }
+
         // check message
         if (comm_1.rank() != 0) {
             const int payload_offset = 1+token_1.id();
-            for (unsigned int i=0; i<size; ++i)
+            for (unsigned int i=0; i<size; ++i) {
+                if (*reinterpret_cast<int*>(msg_1.data()+i*sizeof(int)) != (int)i+payload_offset)
+                    if (*reinterpret_cast<int*>(msg_1.data()+i*sizeof(int)) !=  (int)i+payload_offset) {
+                        std::cout << "This is a fail 1 : "
+                                  << *reinterpret_cast<int*>(msg_1.data()+i*sizeof(int))
+                                  << " != " << (int)i+payload_offset
+                                  << std::endl;
+                    }
                 EXPECT_TRUE(*reinterpret_cast<int*>(msg_1.data()+i*sizeof(int)) == (int)i+payload_offset);
+            }
         }
         if (comm_2.rank() != 0) {
             const int payload_offset = 2+token_2.id();
-            for (unsigned int i=0; i<size; ++i)
+            for (unsigned int i=0; i<size; ++i) {
+                if (*reinterpret_cast<int*>(msg_2.data()+i*sizeof(int)) != (int)i+payload_offset) {
+                    std::cout << "This is a fail 2 : "
+                              << *reinterpret_cast<int*>(msg_2.data()+i*sizeof(int))
+                              << " != " << (int)i+payload_offset
+                              << std::endl;
+                }
                 EXPECT_TRUE(*reinterpret_cast<int*>(msg_2.data()+i*sizeof(int)) == (int)i+payload_offset);
+            }
         }
     };
 
@@ -116,7 +170,7 @@ TEST(context, multi) {
     for (auto& t : threads)
         t.join();
 }
-
+/*
 TEST(context, multi_ordered) {
     const int num_threads = 4;
     auto context_ptr_1 = gridtools::ghex::tl::context_factory<transport,threading>::create(num_threads, MPI_COMM_WORLD);
@@ -201,3 +255,4 @@ TEST(context, multi_ordered) {
     for (auto& t : threads)
         t.join();
 }
+*/
