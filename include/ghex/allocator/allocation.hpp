@@ -50,7 +50,7 @@ namespace gridtools {
 
                 allocation(alloc_type alloc, std::size_t n)
                 : m_alloc{alloc}
-                , m_pointer{n>0u ? alloc_traits::allocate(m_alloc, n): nullptr}
+                , m_pointer{alloc_traits::allocate(m_alloc, n)}
                 , m_capacity{n}
                 {}
 

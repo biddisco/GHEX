@@ -52,8 +52,6 @@ namespace gridtools {
                 static std::unique_ptr<controller_type> instance(new controller_type(
                         GHEX_LIBFABRIC_PROVIDER,
                         GHEX_LIBFABRIC_DOMAIN,
-                        GHEX_LIBFABRIC_ENDPOINT,
-                        false,
                         m_rank, m_size, mpi_comm
                     ));
                 return instance.get();

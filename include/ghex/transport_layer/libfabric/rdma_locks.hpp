@@ -4,16 +4,20 @@
 // Distributed under the Boost Software License, Version 1.0. (See
 // accompanying file LICENSE_1_0.txt or copy at
 
-#ifndef HPX_PARCELSET_POLICIES_LIBFABRIC_RDMA_LOCKS_HPP
-#define HPX_PARCELSET_POLICIES_LIBFABRIC_RDMA_LOCKS_HPP
+#pragma once
 
-#include <hpx/config/parcelport_defines.hpp>
-//
+#define HPX_PARCELPORT_LIBFABRIC_DEBUG_LOCKS
+
+#include <ghex/transport_layer/libfabric/print.hpp>
+
 #include <mutex>
+#include <shared_mutex>
 
-namespace hpx {
-namespace parcelset {
-namespace policies {
+static hpx::debug::enable_print<false> rdma_deb("RMALOCK");
+
+namespace gridtools {
+namespace ghex {
+namespace tl {
 namespace libfabric
 {
 #ifdef HPX_PARCELPORT_LIBFABRIC_DEBUG_LOCKS
@@ -22,12 +26,12 @@ namespace libfabric
     {
         scoped_lock(Mutex &m) : std::lock_guard<Mutex>(m)
         {
-            LOG_DEBUG_MSG("Creating scoped_lock RAII");
+            rdma_deb.debug(hpx::debug::str<>("Creating scoped_lock RAII"));
         }
 
         ~scoped_lock()
         {
-            LOG_DEBUG_MSG("Destroying scoped_lock RAII");
+            rdma_deb.debug(hpx::debug::str<>("Destroying scoped_lock RAII"));
         }
     };
 
@@ -36,17 +40,46 @@ namespace libfabric
     {
         unique_lock(Mutex &m) : std::unique_lock<Mutex>(m)
         {
-            LOG_DEBUG_MSG("Creating unique_lock RAII");
+            rdma_deb.debug(hpx::debug::str<>("Creating unique_lock RAII"));
         }
 
         unique_lock(Mutex& m, std::try_to_lock_t t) : std::unique_lock<Mutex>(m, t)
         {
-            LOG_DEBUG_MSG("Creating unique_lock try_to_lock_t RAII");
+            rdma_deb.debug(hpx::debug::str<>("Creating unique_lock try_to_lock_t RAII"));
         }
 
         ~unique_lock()
         {
-            LOG_DEBUG_MSG("Destroying unique_lock RAII");
+            rdma_deb.debug(hpx::debug::str<>("Destroying unique_lock RAII"));
+        }
+    };
+
+    template<typename Mutex>
+    struct shared_lock: std::shared_lock<Mutex>
+    {
+        shared_lock(Mutex &m) : std::shared_lock<Mutex>(m)
+        {
+            rdma_deb.debug(hpx::debug::str<>("Creating shared_lock RAII"));
+        }
+
+        shared_lock(Mutex& m, std::defer_lock_t t) : std::shared_lock<Mutex>(m, t)
+        {
+            rdma_deb.debug(hpx::debug::str<>("Creating shared_lock defer_lock_t RAII"));
+        }
+
+        shared_lock(Mutex& m, std::try_to_lock_t t) : std::shared_lock<Mutex>(m, t)
+        {
+            rdma_deb.debug(hpx::debug::str<>("Creating shared_lock try_to_lock_t RAII"));
+        }
+
+        shared_lock(Mutex& m, std::adopt_lock_t t) : std::shared_lock<Mutex>(m, t)
+        {
+            rdma_deb.debug(hpx::debug::str<>("Creating shared_lock adopt_lock_t RAII"));
+        }
+
+        ~shared_lock()
+        {
+            rdma_deb.debug(hpx::debug::str<>("Destroying shared_lock RAII"));
         }
     };
 #else
@@ -58,5 +91,4 @@ namespace libfabric
 #endif
 }}}}
 
-#endif
 

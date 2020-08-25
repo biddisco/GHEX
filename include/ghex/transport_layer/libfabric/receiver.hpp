@@ -2,6 +2,7 @@
 #define GHEX_LIBFABRIC_RECEIVER_HPP
 
 #include <ghex/transport_layer/libfabric/rma/detail/memory_region_impl.hpp>
+#include <ghex/transport_layer/libfabric/rma/detail/memory_region_allocator.hpp>
 #include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
 #include <ghex/transport_layer/libfabric/rma/atomic_count.hpp>
 //
@@ -10,8 +11,10 @@
 #include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
 #include <ghex/transport_layer/libfabric/header.hpp>
 #include <ghex/transport_layer/libfabric/rma_base.hpp>
-#include <ghex/transport_layer/libfabric/rma_receiver.hpp>
 #include <ghex/transport_layer/libfabric/controller.hpp>
+#include <ghex/transport_layer/libfabric/unique_function.hpp>
+#include <ghex/transport_layer/libfabric/performance_counter.hpp>
+#include <ghex/transport_layer/callback_utils.hpp>
 //
 #include <boost/container/small_vector.hpp>
 //
@@ -27,397 +30,279 @@ namespace ghex {
 namespace tl {
 namespace libfabric
 {
+
+    struct receiver : public rma_base
+    {
+        friend class controller;
+
+        using region_provider    = libfabric_region_provider;
+        using region_type        = rma::detail::memory_region_impl<region_provider>;
+        using memory_pool_type   = rma::memory_pool<region_provider>;
+        using libfabric_msg_type = message_buffer<rma::memory_region_allocator<unsigned char>>;
+        using any_msg_type       = gridtools::ghex::tl::cb::any_message;
+
+        // internal handler type
+        using postprocess_receiver_fn = unique_function<void(receiver*)>;
+
+    private:
+        fid_ep                            *endpoint_;
+        region_type                       *message_region_;
+        bool                               message_region_temp_;
+        rma::memory_pool<region_provider> *memory_pool_;
+
+        // used by all receivers
+        postprocess_receiver_fn            postprocess_handler_;
+
+        // needed by tagged receivers
+        fi_addr_t                         src_addr_;
+        uint64_t                          tag_;
+        unique_function<void(void)>       user_cb_;
+
+        // shared performance counters used by all receivers
+        static performance_counter<unsigned int> messages_handled_;
+        static performance_counter<unsigned int> receives_pre_posted_;
+
+    public:
+        // --------------------------------------------------------------------
+        // for vector storage, we need a move constructor
+        receiver(receiver &&other) = default;
+
         // --------------------------------------------------------------------
         // construct receive object
-        receiver::receiver(fid_ep* endpoint,
+        receiver(fid_ep* endpoint,
                  rma::memory_pool<region_provider>& memory_pool,
-                 postprocess_receiver_fn &&handler, bool prepost, int tag)
+                 postprocess_receiver_fn &&handler)
             : rma_base(ctx_receiver)
             , endpoint_(endpoint)
-            , header_region_(memory_pool.allocate_region(memory_pool.small_.chunk_size()))
-            , ghex_region_(nullptr)
+            , message_region_(nullptr)
+            , message_region_temp_(false)
             , memory_pool_(&memory_pool)
         {
-            recv_deb.trace(hpx::debug::str<>("created receiver")
-                , hpx::debug::ptr(this));
+//            recv_deb.trace(hpx::debug::str<>("created receiver")
+//                , hpx::debug::ptr(this));
 
-            // called when the receiver completes - durng cleanup
+            // called when the receiver completes - during cleanup
             postprocess_handler_ = std::move(handler);
-
-            // create an rma_receivers per receive and push it onto the rma stack
-            create_rma_receiver(prepost);
-
-            // Once constructed, we need to post the receive...
-            if (prepost) pre_post_receive(tag);
         }
 
         // --------------------------------------------------------------------
         // destruct receive object
-        receiver::~receiver()
+        ~receiver()
         {
-            if (header_region_ && memory_pool_) {
-                memory_pool_->deallocate(header_region_);
-            }
-            // this is safe to call twice - it might have been called already
-            // to collect counter information by the fabric controller
-            cleanup();
         }
 
         // --------------------------------------------------------------------
-        // The cleanup call deletes resources and sums counters from internals
-        // once cleanup is done, the receiver should not be used, other than
-        // dumping counters
-        void receiver::cleanup()
+        // the receiver posts a single receive buffer to the queue, attaching
+        // itself as the context, so that when a message is received
+        // the owning receiver is called to handle processing of the buffer
+        void receive_tagged_region(region_type *recv_region)
         {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            rma_receiver *rcv = nullptr;
+            [[maybe_unused]] auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map contents")
+                                 , memory_pool_->region_alloc_pointer_map_.debug_map());
 
-            while (receiver::rma_receivers_.pop(rcv))
-            {
-                recv_deb.debug("Cleanup"
-                    , "active rma_receivers"
-                    , hpx::debug::dec<>(--active_rma_receivers_));
-                delete rcv;
+            // this should never actually return true and yield/sleep
+            bool ok = false;
+            while(!ok) {
+                uint64_t ignore = 0;
+                ssize_t ret = fi_trecv(this->endpoint_,
+                    recv_region->get_address(),
+                    recv_region->get_size(),
+                    recv_region->get_local_key(),
+                    src_addr_, tag_, ignore, this);
+                if (ret ==0) {
+                    ok = true;
+                }
+                else if (ret == -FI_EAGAIN)
+                {
+                    recv_deb.error("reposting fi_recv\n");
+                    std::this_thread::sleep_for(std::chrono::microseconds(1));
+                }
+                else if (ret != 0)
+                {
+                    throw fabric_error(int(ret), "pp_post_rx");
+                }
             }
+        }
+
+        // --------------------------------------------------------------------
+        // Take raw data and send it.
+        // The data might not be pinned already, if not, pin it temporarily
+        void receive_tagged_data(const void *data, std::size_t size)
+        {
+            [[maybe_unused]] auto scp = ghex::recv_deb.scope(__func__);
+
+            // did someone register this memory block and store it in the memory pool map
+            message_region_ = dynamic_cast<region_type*>(
+                        memory_pool_->region_from_address(data));
+
+            // if the memory was not pinned, register it now
+            message_region_temp_ = false;
+            if (message_region_ == nullptr) {
+                message_region_temp_ = true;
+                message_region_ = memory_pool_->register_temporary_region(data, size);
+                memory_pool_->add_address_to_map(data, message_region_);
+                ghex::recv_deb.debug(hpx::debug::str<>("region is temp"), message_region_);
+            }
+
+            // Set the used size correctly
+            message_region_->set_message_length(size);
+            receive_tagged_region(message_region_);
+        }
+
+        // utility struct to hold raw data info
+        struct msg_data_default {
+            const void *data;
+            std::size_t size;
+        };
+
+        // utility struct to hold libfabric enabled info
+        struct msg_data_libfabric {
+            region_type *message_region_;
+        };
+
+        // solve move/callback issues by extracting what we need from the message
+        // in this function, before calling the main send function after the
+        // message has been moved into the callback
+        auto init_message_data(const any_msg_type &msg, uint64_t tag)
+        {
+            tag_     = tag;
+            return msg_data_default{msg.data(), msg.size()};
+        }
+
+        auto init_message_data(const libfabric_msg_type &msg, uint64_t tag)
+        {
+            tag_                 = tag;
+            message_region_temp_ = false;
+            message_region_      = msg.get_buffer().m_pointer.region_;
+            message_region_->set_message_length(msg.size());
+            return msg_data_libfabric{message_region_};
+        }
+
+        // generic message sender (reference to message)
+        // message can be a vector or anything that supports data/size
+        template<typename Message, typename Callback>
+        void receive_tagged_msg(Message &msg,
+                             uint64_t tag,
+                             Callback &&cb_fn)
+        {
+            tag_     = tag;
+            user_cb_ = std::move(cb_fn);
+            receive_tagged_data(msg.data(), msg.size());
+        }
+
+        template<typename Callback>
+        void receive_tagged_msg(libfabric_msg_type &msg,
+                             uint64_t tag,
+                             Callback &&cb_fn)
+        {
+            init_message_data(msg, tag);
+            user_cb_ = std::move(cb_fn);
+            receive_tagged_region(message_region_);
+        }
+
+        // generic message sender (move message into callback)
+        template<typename Callback>
+        void receive_tagged_msg(const msg_data_default &md, Callback &&cb_fn)
+        {
+            user_cb_ = std::forward<Callback>(cb_fn);
+            receive_tagged_data(md.data, md.size);
+        }
+
+        // libfabric message customization (known memory region)
+        template<typename Callback>
+        void receive_tagged_msg(const msg_data_libfabric &md, Callback &&cb_fn)
+        {
+            user_cb_ = std::forward<Callback>(cb_fn);
+            receive_tagged_region(md.message_region_);
         }
 
         // --------------------------------------------------------------------
         // Not used, provided for potential/future rma_base compatibility
-        void receiver::handle_error(struct fi_cq_err_entry err) {}
+        void handle_error(struct fi_cq_err_entry) {}
 
         // --------------------------------------------------------------------
-        // A new connection only contains a locality address of the sender
-        // so it can be handled directly without creating an rma_receiver
-        // just get the address and add it to the address_vector
-        //
-        // This function is only called when lifabric is used for bootstrapping
-        void receiver::handle_new_connection(controller *controller, std::uint64_t len)
-        {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-
-            // this should only ever occurr on an unexpected message
-            HPX_ASSERT(tag_ == std::uint64_t(-1));
-
-            recv_deb.debug(hpx::debug::str<>("new connection")
-                , "length", hpx::debug::hex<6>(len)
-                , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
-
-            // We save the received region and swap it with a newly allocated one
-            // so that we can post a recv again as soon as possible.
-            region_type* region = header_region_;
-            header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            // by default : this will (p)repost the receive buffer
-            postprocess_handler_(this);
-
-//            recv_deb.trace(hpx::debug::str<>("header")
-//                ,  hpx::debug::mem_crc32(region->get_address()
-//                ,len, "Header region (new connection)"));
-
-            rma_receiver::header_type *header =
-                    reinterpret_cast<rma_receiver::header_type*>(region->get_address());
-
-            // The message size should match the locality data size
-            HPX_ASSERT(header->message_size() == locality_defs::array_size);
-
-            libfabric::locality source_addr;
-            std::memcpy(source_addr.fabric_data_writable(),
-                        header->message_data(),
-                        locality_defs::array_size);
-            recv_deb.debug(hpx::debug::str<>("bootstrap")
-                , "Received connection locality"
-                , iplocality(source_addr));
-
-            // free up the region we consumed
-            memory_pool_->deallocate(region);
-
-            // Add the sender's address to the address vector and update it
-            // with the fi_addr address vector table index (rank)
-            source_addr = controller->insert_address(source_addr);
-            controller->update_bootstrap_connections();
+        void handle_cancel() {
         }
 
         // --------------------------------------------------------------------
-        // when a receive completes, this callback handler is called if
-        // rma transfers are needed
-        rma_receiver *receiver::create_rma_receiver(bool push_to_stack)
+        int handle_recv_completion(fi_addr_t const& /*src_addr*/, std::uint64_t /*len*/)
         {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            // this is the rma_receiver completion handling function
-            // it just returns the rma_receiver back to the stack
-            auto f = [](rma_receiver* recv)
-            {
-                ++active_rma_receivers_;
-                recv_deb.debug(hpx::debug::str<>("rma_receiver")
-                    , "Push"
-                    , "active", hpx::debug::dec<>(active_rma_receivers_));
-                if (!receiver::rma_receivers_.push(recv)) {
-                    // if the capacity overflowed, just delete this one
-                    --active_rma_receivers_;
-                    recv_deb.debug(hpx::debug::str<>("stack full 1")
-                        , "active", hpx::debug::dec<>(active_rma_receivers_));
-                    delete recv;
-                }
-            };
-
-            // Put a new rma_receiver on the stack
-            rma_receiver *recv = new rma_receiver(endpoint_,
-                                                  memory_pool_,
-                                                  std::move(f));
-            ++active_rma_receivers_;
-            recv_deb.debug(hpx::debug::str<>("rma_receiver")
-                , "Create new"
-                , hpx::debug::dec<>(active_rma_receivers_));
-            if (push_to_stack) {
-                if (!receiver::rma_receivers_.push(recv)) {
-                    // if the capacity overflowed, just delete this one
-                    --active_rma_receivers_;
-                    recv_deb.debug(hpx::debug::str<>("stack full 2")
-                        , hpx::debug::dec<>(active_rma_receivers_));
-                    delete recv;
-                }
-            }
-            else {
-                return recv;
-            }
-            return nullptr;
-        }
-
-        // --------------------------------------------------------------------
-        rma_receiver* receiver::get_rma_receiver(fi_addr_t const& src_addr)
-        {
-            auto scp = ghex::recv_deb.scope(this, __func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            rma_receiver *recv = nullptr;
-            // cannot yield here - might be called from background thread
-            if (!receiver::rma_receivers_.pop(recv)) {
-                recv = create_rma_receiver(false);
-            }
-            --active_rma_receivers_;
-            recv_deb.debug(hpx::debug::str<>("get_rma_receiver")
-                , hpx::debug::ptr(recv)
-                , "active", hpx::debug::dec<>(active_rma_receivers_));
-            //
-            recv->src_addr_       = src_addr;
-            recv->endpoint_       = endpoint_;
-            recv->header_region_  = nullptr;
-            recv->chunk_region_   = nullptr;
-            recv->message_region_ = ghex_region_;
-            recv->message_region_external_ = true;
-            recv->header_         = nullptr;
-            recv->rma_count_      = 0;
-            recv->chunk_fetch_    = false;
-            return recv;
-        }
-
-        void receiver::handle_cancel() {
-            // for now - do nothing as the future/request associated with this
-            // receive has probably been allowed to go out of scope
-            //postprocess_handler_(this);
-        }
-
-        // --------------------------------------------------------------------
-        // A received message is routed by the controller into this function.
-        // it might be an incoming message or just an ack sent to inform that
-        // all rdma reads are complete from a previous send operation.
-        // this function returns 1 if
-        int receiver::handle_recv(fi_addr_t const& src_addr, std::uint64_t len)
-        {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
-                "sizeof(std::uint64_t) != sizeof(std::size_t)");
+            [[maybe_unused]] auto scp = ghex::recv_deb.scope(__func__);
+            ghex::recv_deb.debug(hpx::debug::str<>("map contents")
+                                 , memory_pool_->region_alloc_pointer_map_.debug_map());
 
             recv_deb.debug(hpx::debug::str<>("handling recv")
                 , "tag", hpx::debug::hex<16>(tag_)
                 , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
 
-            if (ghex_region_) {
-                recv_deb.debug(hpx::debug::str<>("ghex region")
-                , "ghex region", *ghex_region_);
-            }
+            recv_deb.debug(hpx::debug::str<>("ghex region")
+            , *message_region_);
 
-            HPX_ASSERT(tag_ == std::uint64_t(-1));
-
-            // If we receive an unexepcted message of 8 bytes,
-            // we got an RMA complete ack and need to handle the tag completion...
-            if (len <= sizeof(std::uint64_t))
-            {
-                // Get the sender that has completed rma operations and signal to it
-                // that it can now cleanup - all remote get operations are done.
-                sender* snd = *reinterpret_cast<sender **>(header_region_->get_address());
-                postprocess_handler_(this);
-                recv_deb.debug(hpx::debug::str<>("RMA ack")
-                    , hpx::debug::ptr(snd));
-                ++acks_received_;
-                return snd->handle_message_completion_ack();
-            }
-
-            // We save the received region and swap it with a newly allocated one
-            // so that we can post a recv again as soon as possible.
-            region_type* region = header_region_;
-            header_region_ = memory_pool_->allocate_region(memory_pool_->small_.chunk_size());
-            postprocess_handler_(this);
-
-            rma_receiver* recv = get_rma_receiver(src_addr);
-            recv->user_recv_cb_ = std::move(user_recv_cb_);
-
-            // we dispatch our work to our rma_receiver once it completed the
-            // prior message. The saved region is passed to the rma handler
             ++messages_handled_;
-            return recv->read_message(region, src_addr);
-        }
 
-        int receiver::handle_recv_tagged(fi_addr_t const& src_addr, std::uint64_t len)
-        {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            static_assert(sizeof(std::uint64_t) == sizeof(std::size_t),
-                "sizeof(std::uint64_t) != sizeof(std::size_t)");
-
-            recv_deb.debug(hpx::debug::str<>("handling recv")
-                , "tag", hpx::debug::hex<16>(tag_)
-                , "pre-posted" , hpx::debug::dec<>(--receives_pre_posted_));
-
-            if (ghex_region_) {
-                recv_deb.debug(hpx::debug::str<>("ghex region")
-                , "ghex region", *ghex_region_);
+            // cleanup temp region
+            if (message_region_temp_) {
+                ghex::recv_deb.debug(hpx::debug::str<>("Receiver")
+                                     , hpx::debug::ptr(this)
+                                     , "free temp region "
+                                     , message_region_);
+                memory_pool_->remove_address_from_map(message_region_->get_address(), message_region_);
+                memory_pool_->deallocate(message_region_);
+                ghex::recv_deb.debug(hpx::debug::str<>("map contents")
+                                     , memory_pool_->region_alloc_pointer_map_.debug_map());
             }
+            message_region_ = nullptr;
 
+            // call user supplied completion callback
+            user_cb_();
+
+            // clear the callback to an empty state
+            // (in case it holds reference counts that must be released)
+            user_cb_ = [](){};
+
+            // return the receiver to the available list
+            ghex::recv_deb.debug(hpx::debug::str<>("Receiver")
+                           , hpx::debug::ptr(this)
+                           , "calling postprocess_handler");
             postprocess_handler_(this);
-            ++messages_handled_;
-            user_recv_cb_();
-
             return 1;
         }
 
-        // --------------------------------------------------------------------
-        // the receiver posts a single receive buffer to the queue, attaching
-        // itself as the context, so that when a message is received
-        // the owning receiver is called to handle processing of the buffer
-        void receiver::pre_post_receive_tagged(uint64_t tag)
+        bool cancel()
         {
-            auto scp = ghex::recv_deb.scope(__func__);
-            (void)scp;
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
+            bool ok = (fi_cancel(&this->endpoint_->fid, this) == 0);
+            if (!ok) return ok;
 
-            //
-            tag_ = tag;
+            // cleanup as if we had completed, but without calling any
+            // user callbacks
+            user_cb_ = [](){};
 
-            // this should never actually return true and yield
-            bool ok = false;
-            while(!ok) {
-                uint64_t ignore = 0;
-                void *desc = ghex_region_->get_local_key();
-                ssize_t ret = fi_trecv(this->endpoint_,
-                    ghex_region_->get_address(),
-                    ghex_region_->get_size(), desc, src_addr_, tag, ignore, this);
-
-                if (ret ==0) {
-                    ok = true;
-                }
-                else if (ret == -FI_EAGAIN)
-                {
-                    recv_deb.error("reposting fi_recv\n");
-                    std::this_thread::sleep_for(std::chrono::microseconds(1));
-                }
-                else if (ret != 0)
-                {
-                    throw fabric_error(int(ret), "pp_post_rx");
-                }
+            // cleanup temp region
+            if (message_region_temp_) {
+                ghex::recv_deb.debug(hpx::debug::str<>("Receiver")
+                               , hpx::debug::ptr(this)
+                               , "disposing of temp region");
+                ghex::recv_deb.debug(hpx::debug::str<>("free temp region "), message_region_);
+                memory_pool_->remove_address_from_map(message_region_->get_address(), message_region_);
+                memory_pool_->deallocate(message_region_);
+                ghex::recv_deb.debug(hpx::debug::str<>("map contents")
+                                     , memory_pool_->region_alloc_pointer_map_.debug_map());
             }
+            message_region_ = nullptr;
+
+            // return the receiver to the available list
+            ghex::recv_deb.debug(hpx::debug::str<>("Receiver")
+                                 , hpx::debug::ptr(this)
+                                 , "cancel"
+                                 , "calling postprocess_handler");
+            postprocess_handler_(this);
+            return ok;
         }
+    };
 
-        // --------------------------------------------------------------------
-        // the receiver posts a single receive buffer to the queue, attaching
-        // itself as the context, so that when a message is received
-        // the owning receiver is called to handle processing of the buffer
-        void receiver::pre_post_receive(uint64_t tag)
-        {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-
-            //
-            tag_ = tag;
-            void *desc = header_region_->get_local_key();
-            //
-            recv_deb.debug(hpx::debug::str<>("Pre-Posting")
-                , *header_region_
-                , "context" , hpx::debug::ptr(this)
-                , "tag", hpx::debug::hex<16>(tag_)
-                , "pre-posted" , hpx::debug::dec<>(++receives_pre_posted_)
-                , "ghex region", ghex_region_);
-
-            // this should never actually return true and yield
-            bool ok = false;
-            while(!ok) {
-                ssize_t ret;
-                // post a receive using 'this' as the context, so that this
-                // receiver object can be used to handle the incoming
-                // receive/request
-                if (tag==uint64_t(-1)) {
-                    ret = fi_recv(this->endpoint_,
-                        this->header_region_->get_address(),
-                        this->header_region_->get_size(), desc, FI_ADDR_UNSPEC, this);
-                }
-                else {
-                    uint64_t ignore = 0;
-
-                    ret = fi_trecv(this->endpoint_,
-                        this->header_region_->get_address(),
-                        this->header_region_->get_size(), desc, src_addr_, tag, ignore, this);
-                }
-                if (ret ==0) {
-                    ok = true;
-                }
-                else if (ret == -FI_EAGAIN)
-                {
-                    recv_deb.error("reposting fi_recv\n");
-                    std::this_thread::sleep_for(std::chrono::microseconds(1));
-                }
-                else if (ret != 0)
-                {
-                    throw fabric_error(int(ret), "pp_post_rx");
-                }
-            }
-        }
-
-        // --------------------------------------------------------------------
-        // the receiver posts a single receive buffer to the queue, attaching
-        // itself as the context, so that when a message is received
-        // the owning receiver is called to handle processing of the buffer
-        template <typename Message>
-        void receiver::pre_post_receive_msg(Message &msg, uint64_t tag)
-        {
-            auto scp = ghex::recv_deb.scope(__func__);
-            ghex::recv_deb.debug(hpx::debug::str<>("map"), memory_pool_->region_alloc_pointer_map_.debug_map());
-            //
-            ghex_region_ = dynamic_cast<region_type*>(
-                        memory_pool_->region_from_address(msg.data()));
-
-            if (ghex_region_ == nullptr) {
-                ghex_region_ = memory_pool_->register_temporary_region(msg.data(), msg.size());
-                memory_pool_->add_address_to_map(msg.data(), ghex_region_);
-            }
-            ghex_region_->set_message_length(msg.size());
-            recv_deb.debug(hpx::debug::str<>("ghex region"), *ghex_region_);
-
-            HPX_ASSERT(tag_ != std::uint64_t(-1));
-            pre_post_receive_tagged(tag);
-        }
-
-        int receiver::cancel()
-        {
-            return fi_cancel(&this->endpoint_->fid, this);
-        }
-
-        performance_counter<unsigned int> receiver::messages_handled_(0);
-        performance_counter<unsigned int> receiver::acks_received_(0);
-        performance_counter<unsigned int> receiver::receives_pre_posted_(0);
-        performance_counter<unsigned int> receiver::active_rma_receivers_(0);
-        receiver::rma_stack               receiver::rma_receivers_;
+    performance_counter<unsigned int> receiver::messages_handled_(0);
+    performance_counter<unsigned int> receiver::receives_pre_posted_(0);
 
 }}}}
 

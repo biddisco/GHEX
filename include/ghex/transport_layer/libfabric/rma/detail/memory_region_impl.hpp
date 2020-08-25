@@ -9,7 +9,6 @@
 
 #include <ghex/transport_layer/libfabric/rma/detail/memory_region_traits.hpp>
 #include <ghex/transport_layer/libfabric/rma/memory_region.hpp>
-#include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
 #include <ghex/transport_layer/libfabric/print.hpp>
 //
 #include <memory>
@@ -140,9 +139,8 @@ namespace detail
                 memr_deb.trace(hpx::debug::str<>("releasing region")
                     , *this);
                 // get these before deleting/unregistering (for logging)
-                const void *buffer = get_base_address();
-                auto length = memr_deb.declare_variable<uint64_t>(get_size());
-                (void)length;
+                [[maybe_unused]] auto buffer = memr_deb.declare_variable<uint64_t>(get_base_address());
+                [[maybe_unused]] auto length = memr_deb.declare_variable<uint64_t>(get_size());
                 //
                 if (traits::rma_memory_region_traits<RegionProvider>::
                     unregister_memory(region_))
@@ -157,7 +155,7 @@ namespace detail
                         , "with length" , hpx::debug::hex<6>(length));
                 }
                 if (!get_user_region()) {
-                    delete [](static_cast<const char*>(buffer));
+                    delete [](static_cast<const char*>(get_base_address()));
                 }
                 region_ = nullptr;
             }

@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
@@ -684,7 +685,7 @@ namespace hpx { namespace debug {
         }
 
         template <typename... Args>
-        constexpr bool scope(const Args&... args)
+        constexpr bool scope(const Args&...)
         {
             return true;
         }

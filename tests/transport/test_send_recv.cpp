@@ -140,6 +140,7 @@ auto test_ring_send_recv_cb(CommType& comm, std::size_t buffer_size)
     if(rank==0)
     {
         std::cout << "time:       " << t/1000000 << "s\n";
+        std::cout << "************" << "\n\n\n\n\n\n";
     }
 }
 

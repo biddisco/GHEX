@@ -11,7 +11,7 @@
 #include "atomic_count.hpp"
 //
 #include "detail/memory_region_impl.hpp"
-#include "detail/memory_region_allocator.hpp"
+#include "detail/memory_block_allocator.hpp"
 #include "detail/memory_pool_stack.hpp"
 //
 #include <ghex/transport_layer/libfabric/performance_counter.hpp>
@@ -99,7 +99,7 @@ namespace rma
 
         typedef typename RegionProvider::provider_domain        domain_type;
         typedef detail::memory_region_impl<RegionProvider>      region_type;
-        typedef detail::memory_region_allocator<RegionProvider> allocator_type;
+        typedef detail::memory_block_allocator<RegionProvider> allocator_type;
         typedef std::shared_ptr<region_type>                    region_ptr;
 
         //----------------------------------------------------------------------------
@@ -282,7 +282,7 @@ namespace rma
         //----------------------------------------------------------------------------
         // find a memory_region* from the memory address it wraps
         // DEPRECATED : Left for posible reuse
-        // this is only valid for regions allocated sing the STL allocate method
+        // this is only valid for regions allocated using the STL allocate method
         // and if you are using this, then you probably should have allocated
         // a region instead in the first place
         memory_region *region_from_address(void const * addr)
@@ -296,8 +296,9 @@ namespace rma
                     , *(present.first->second));
                 return (present.first->second);
             }
-            pool_deb.error("returning nullptr from region_from_address"
-                , hpx::debug::ptr(addr));
+            pool_deb.error(hpx::debug::str<>("Not found in map")
+                           , hpx::debug::ptr(addr)
+                           , "region_from_address returning nullptr");
             return nullptr;
         }
 

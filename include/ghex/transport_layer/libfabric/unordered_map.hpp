@@ -9,12 +9,11 @@
 #if !defined(GHEX_CONCURRENT_UNORDERED_MAP)
 #define GHEX_CONCURRENT_UNORDERED_MAP
 
+#include <ghex/transport_layer/libfabric/rdma_locks.hpp>
 #include <ghex/transport_layer/libfabric/readers_writers_mutex.hpp>
-//#include <plugins/parcelport/libfabric/rdma_locks.hpp>
-//
-#include <boost/thread/locks.hpp>
 //
 #include <unordered_map>
+#include <shared_mutex>
 #include <utility>
 
 // A quick wrapper around an unordered_map with a mutex to ensure two
@@ -37,11 +36,11 @@ namespace concurrent {
     class unordered_map
     {
     public:
-
-        typedef hpx::lcos::local::readers_writer_mutex  rw_mutex_type;
-        typedef std::unique_lock<rw_mutex_type>         write_lock;
-        typedef boost::shared_lock<rw_mutex_type>       read_lock;
-        typedef boost::defer_lock_t                     defer_lock;
+// std::shared_mutex; //
+        using rw_mutex_type = hpx::lcos::local::readers_writer_mutex;
+        using write_lock    = gridtools::ghex::tl::libfabric::unique_lock<rw_mutex_type>;
+        using read_lock     = gridtools::ghex::tl::libfabric::shared_lock<rw_mutex_type>;
+        using defer_lock    = std::defer_lock_t;
 
     private:
         typedef std::unordered_map<Key, Value, Hash, KeyEqual, Allocator> base_map;
@@ -66,9 +65,6 @@ namespace concurrent {
         typedef typename base_map::const_iterator const_iterator;
         typedef typename base_map::local_iterator local_iterator;
         typedef typename base_map::const_local_iterator const_local_iterator;
-        //
-        typedef read_lock  map_read_lock_type;
-        typedef write_lock map_write_lock_type;
 
     public:
         //
@@ -356,20 +352,21 @@ namespace concurrent {
         //
         std::string debug_map() const
         {
-            return "";
-//            read_lock lock(mutex_);
+            read_lock lock(mutex_, std::try_to_lock_t{});
+            if (!lock.owns_lock()) return "already locked";
+            // do not call this->size() because it takes a lock
+            // and we do not support a recursive shared rw lock
+            std::stringstream temp;
+            int index = 0;
+            temp << this << " Map size is " << map_.size() << "\n";
 
-//            std::stringstream temp;
-//            int index = 0;
-//            temp << "\n" << this << " Map size is " << this->size() << "\n";
-
-//            for (const_iterator it = begin(); it!=end(); ++it) {
-//                temp << "\t" << index
-//                     << " : key " << it->first
-//                     << " : val " << it->second << "\n";
-//                ++index;
-//            }
-//            return temp.str();
+            for (const_iterator it = begin(); it!=end(); ++it) {
+                temp << "\t" << index
+                     << " : key " << it->first
+                     << " : val " << it->second << "\n";
+                ++index;
+            }
+            return temp.str();
         }
 
 

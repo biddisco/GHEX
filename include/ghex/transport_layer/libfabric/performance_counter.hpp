@@ -100,7 +100,7 @@ namespace libfabric
         inline T operator-=(const T&) { return 0; }
 
         friend std::ostream& operator<<(std::ostream& os,
-            const performance_counter<T, false>& x)
+            const performance_counter<T, false>&)
         {
             os << "undefined";
             return os;

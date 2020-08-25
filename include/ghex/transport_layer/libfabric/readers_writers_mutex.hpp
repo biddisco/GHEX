@@ -4,11 +4,9 @@
 #include <chrono>
 #include <thread>
 
-#ifdef RW_LOCK_ENABLE_LOGGING
-# define RWL_DEBUG_MSG(x) LOG_DEBUG_MSG(x)
-#else
-# define RWL_DEBUG_MSG(x)
-#endif
+#include <ghex/transport_layer/libfabric/print.hpp>
+
+static hpx::debug::enable_print<false> RWL_deb("RW_LOCK");
 
 // Note that this implementation uses 16bit counters so can handle 65536
 // contentions on the lock without wraparound. It has not proven to be a
@@ -143,16 +141,17 @@ namespace local {
         //
         void lock()
         {
-            RWL_DEBUG_MSG("lock wr " << std::hex << this
-                << " r " << ticket.s.readers
-                << " w " << ticket.s.writers
-                << " n " << ticket.s.next
-                << " v " << ticket.s.next);
-
-            // memory ordering barrier
+            // memory ordering rwl_barrier_
             rwl_barrier_();
-
             uint16_t val = atomic_xadd(&ticket.s.next, 1);
+
+            RWL_deb.debug(hpx::debug::str<>("lock wr")
+                          , hpx::debug::ptr(this)
+                          , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                          , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                          , "n" , hpx::debug::dec<4>(ticket.s.next)
+                          , "v" , hpx::debug::dec<4>(val));
+
             while (val != ticket.s.writers) {
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
             }
@@ -170,20 +169,25 @@ namespace local {
             // readlock incremented readers when it took the lock
             if (readlock_) {
                 atomic_inc(&ticket.s.writers);
-                RWL_DEBUG_MSG("unlock rd " << std::hex << this
-                    << " r " << ticket.s.readers
-                    << " w " << ticket.s.writers
-                    << " n " << ticket.s.next);
+                RWL_deb.debug(hpx::debug::str<>("unlock rd")
+                              , hpx::debug::ptr(this)
+                              , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                              , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                              , "n" , hpx::debug::dec<4>(ticket.s.next));
             }
             else {
-                // only one writer can enter unlock at a time, do not need atomics
+                // only one writer can enter unlock at a time,
+                // we do not need atomic operations here
                 readwrite_ticket new_ticket = ticket;
                 ++new_ticket.s.writers;
                 ++new_ticket.s.readers;
-                RWL_DEBUG_MSG("unlock wr " << std::hex << this
-                    << " r " << new_ticket.s.readers
-                    << " w " << new_ticket.s.writers
-                    << " n " << new_ticket.s.next);
+                RWL_deb.debug(hpx::debug::str<>("unlock wr")
+                              , hpx::debug::ptr(this)
+                              , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                              , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                              , "n" , hpx::debug::dec<4>(ticket.s.next));
+
+                // this copy operation must be atomic for the full 32bits
                 ticket.i.wr = new_ticket.i.wr;
             }
         }
@@ -193,6 +197,12 @@ namespace local {
         //
         bool try_lock()
         {
+            RWL_deb.debug(hpx::debug::str<>("try  wr")
+                          , hpx::debug::ptr(this)
+                          , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                          , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                          , "n" , hpx::debug::dec<4>(ticket.s.next));
+
             readwrite_ticket new_ticket, old_ticket;
             new_ticket = old_ticket = ticket;
 
@@ -222,16 +232,17 @@ namespace local {
         //
         void lock_shared()
         {
-            RWL_DEBUG_MSG("lock rd " << std::hex << this
-                << " r " << ticket.s.readers
-                << " w " << ticket.s.writers
-                << " n " << ticket.s.next
-                << " v " << ticket.s.next);
-
             // memory ordering rwl_barrier_
             rwl_barrier_();
-
             uint16_t val = atomic_xadd(&ticket.s.next, 1);
+
+            RWL_deb.debug(hpx::debug::str<>("lock rd")
+                          , hpx::debug::ptr(this)
+                          , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                          , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                          , "n" , hpx::debug::dec<4>(ticket.s.next)
+                          , "v" , hpx::debug::dec<4>(val));
+
             while (val != ticket.s.readers) {
                 std::this_thread::sleep_for(std::chrono::microseconds(1));
             }
@@ -257,6 +268,12 @@ namespace local {
         //
         bool try_lock_shared()
         {
+            RWL_deb.debug(hpx::debug::str<>("try  rd")
+                          , hpx::debug::ptr(this)
+                          , "r" , hpx::debug::dec<4>(ticket.s.readers)
+                          , "w" , hpx::debug::dec<4>(ticket.s.writers)
+                          , "n" , hpx::debug::dec<4>(ticket.s.next));
+
             readwrite_ticket new_ticket, old_ticket;
             new_ticket = old_ticket = ticket;
             //

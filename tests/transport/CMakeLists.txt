@@ -37,6 +37,12 @@ foreach(t_ ${_tests})
 
 endforeach(t_ ${_tests})
 
+if (GHEX_USE_LIBFABRIC)
+    add_executable( test_fancy_pointer test_fancy_pointer.cpp )
+    target_link_libraries(test_fancy_pointer gtest_main_libfabric)
+    target_compile_definitions(test_fancy_pointer PUBLIC GHEX_TEST_USE_LIBFABRIC)
+endif()
+
 if (GHEX_USE_UCP)
     set(_tests_ucx test_ucx_context)
 

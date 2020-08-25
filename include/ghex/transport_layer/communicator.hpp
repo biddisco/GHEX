@@ -112,7 +112,7 @@ namespace gridtools {
                 /** @brief send a message and get notified with a callback when the communication has finished.
                   * The message must be kept alive by the caller until the communication is finished.
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an l-value reference to the message to be sent
                   * @param dst the destination rank
@@ -130,7 +130,7 @@ namespace gridtools {
                   * The ownership of the message is transferred to this communicator and it is safe to destroy the
                   * message at the caller's site. 
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an r-value reference to the message to be sent
                   * @param dst the destination rank
@@ -259,7 +259,7 @@ namespace gridtools {
                 /** @brief receive a message and get notified with a callback when the communication has finished.
                   * The message must be kept alive by the caller until the communication is finished.
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an l-value reference to the message to be sent
                   * @param src the source rank
@@ -277,7 +277,7 @@ namespace gridtools {
                   * The ownership of the message is transferred to this communicator and it is safe to destroy the
                   * message at the caller's site. 
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an r-value reference to the message to be sent
                   * @param src the source rank

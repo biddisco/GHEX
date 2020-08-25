@@ -65,8 +65,7 @@ namespace gridtools{
                 {
                     // we can  only cancel recv requests...
                     if  (m_kind == request_kind::recv && (m_lf_ctxt->m_lf_context!=nullptr)) {
-                        auto c = m_lf_ctxt->m_lf_context->cancel();
-                        return (c==0);
+                        return m_lf_ctxt->m_lf_context->cancel();
                     }
                     return false;
                 }

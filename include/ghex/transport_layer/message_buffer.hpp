@@ -124,6 +124,10 @@ namespace gridtools {
                 raw_const_pointer data() const noexcept { return ::gridtools::ghex::to_address(m_buffer.m_pointer); }
                 raw_pointer data() noexcept { return ::gridtools::ghex::to_address(m_buffer.m_pointer); }
 
+                // provide const access to the underlying buffer which allows
+                // rma aware transports to access memory registration info when available
+                buffer_type const & get_buffer() const { return m_buffer; }
+
                 /** @brief returns a raw pointer to the beginning of the allocated memory, interpreted as T*. */
                 template <typename T>
                 T* data() noexcept

@@ -20,7 +20,7 @@ namespace libfabric
     enum rma_context_type {
         ctx_sender       = 0,
         ctx_receiver     = 1,
-        ctx_rma_receiver = 2
+//        ctx_rma_receiver = 2
     };
 
     // rma_base is base class for sender, receiver and rma_receiver. The first

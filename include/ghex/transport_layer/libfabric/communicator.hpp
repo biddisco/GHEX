@@ -17,7 +17,6 @@
 #include <ghex/transport_layer/libfabric/controller.hpp>
 #include <ghex/transport_layer/libfabric/future.hpp>
 #include <ghex/transport_layer/libfabric/sender.hpp>
-#include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
 
 namespace gridtools {
     namespace ghex {
@@ -127,7 +126,7 @@ namespace gridtools {
                     using tag_type               = typename shared_state_type::tag_type;
                     using request                = request_t;
                     template<typename T> using future = future_t<T>;
-                    template<typename T> using allocator_type  = ghex::tl::libfabric::rma::allocator<T>;
+                    template<typename T> using allocator_type  = ghex::tl::libfabric::rma::memory_region_allocator<T>;
 
                     using address_type    = rank_type;
                     using request_cb_type = request_cb<ThreadPrimitives>;
@@ -155,12 +154,12 @@ namespace gridtools {
 
                     inline std::uint64_t make_tag64(std::uint32_t tag) {
                         return (std::uint64_t(m_shared_state->m_context->ctag_) << 32) |
-                                (std::uint64_t(tag) & 0xFFFFFFFF);
+                                (std::uint64_t(tag & 0xFFFFFFFF));
                     }
 
                     /** @brief send a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param dst the destination rank
                      * @param tag the communication tag
@@ -168,8 +167,7 @@ namespace gridtools {
                     template<typename Message>
                     [[nodiscard]] future<void> send(const Message& msg, rank_type dst, tag_type tag)
                     {
-                        auto scp = ghex::com_deb.scope(this, __func__, "(future)");
-                        ghex::com_deb.debug(hpx::debug::str<>("map"), m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
+                        [[maybe_unused]] auto scp = ghex::com_deb.scope(this, __func__, "(future)");
 
                         std::uint64_t stag = make_tag64(tag);
 
@@ -193,8 +191,7 @@ namespace gridtools {
                             , "size", hpx::debug::hex<6>(msg.size()));
 
                         // async send, with callback to set the future ready when transfer is complete
-                        sndr->message_region_external_ = true;
-                        sndr->async_send_tagged(msg, stag, [p=req.m_lf_ctxt](){
+                        sndr->send_tagged_msg(msg, stag, [p=req.m_lf_ctxt]() {
                             p->m_ready = true;
                             ghex::com_deb.debug(hpx::debug::str<>("Send (future)"), "F(set)");
                         });
@@ -203,18 +200,78 @@ namespace gridtools {
                         return req;
                     }
 
+                    /** @brief send a message and get notified with a callback when the communication has finished.
+                      * The ownership of the message is transferred to this communicator and it is safe to destroy the
+                      * message at the caller's site.
+                      * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
+                      * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
+                      * @param msg r-value reference to any_message instance
+                      * @param dst the destination rank
+                      * @param tag the communication tag
+                      * @param callback a callback instance
+                      * @return a request to test (but not wait) for completion */
+                    template<typename CallBack>
+                    request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
+                    {
+                        [[maybe_unused]] auto scp = ghex::com_deb.scope(this, __func__, "(callback)");
+
+                        std::uint64_t stag = make_tag64(tag);
+
+                        // get main libfabric controller
+                        auto controller = m_shared_state->m_controller;
+                        // get a sender
+                        ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
+
+                        // create a request
+                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
+                        request req{controller, request_kind::recv, std::move(result)};
+
+                        ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
+                         , "thisrank", hpx::debug::dec<>(rank())
+                         , "rank", hpx::debug::dec<>(dst)
+                         , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
+                         , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
+                         , "stag", hpx::debug::hex<16>(stag)
+                         , "sndr", hpx::debug::ptr(sndr)
+                         , "addr", hpx::debug::ptr(msg.data())
+                         , "size", hpx::debug::hex<6>(msg.size()));
+
+                        // so that we can move the message int the callback,
+                        // we first init the message sender
+                        auto temp_msg_data = sndr->init_message_data(msg, stag);
+
+                        // now move message into callback
+                        auto lambda = [
+                             p        = req.m_lf_ctxt,
+                             msg      = std::forward<message_type>(msg),
+                             callback = std::forward<CallBack>(callback),
+                             dst, tag
+                             ]() mutable
+                        {
+                            p->m_ready = true;
+                            ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
+                                 , "F(set)", hpx::debug::dec<>(dst));
+                            callback(std::move(msg), dst, tag);
+                        };
+
+                        // perform a send with the callback for when transfer is complete
+                        sndr->send_tagged_msg(temp_msg_data, std::move(lambda));
+                        return req;
+                    }
+
                     /** @brief receive a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param src the source rank
                      * @param tag the communication tag
                      * @return a future to test/wait for completion */
                     template<typename Message>
-                    [[nodiscard]] future<void> recv(Message& msg, rank_type src, tag_type tag)
+                    [[nodiscard]] future<void> recv(Message &msg, rank_type src, tag_type tag)
                     {
-                        auto scp = ghex::com_deb.scope(this, __func__, "(future)");
-                        ghex::com_deb.debug(hpx::debug::str<>("map"), m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
+                        [[maybe_unused]] auto scp = ghex::com_deb.scope(this, __func__, "(future)");
+                        ghex::com_deb.debug(hpx::debug::str<>("map contents"),
+                                            m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
 
                         std::uint64_t stag = make_tag64(tag);
 
@@ -227,11 +284,7 @@ namespace gridtools {
 
                         // get a receiver object (tagged, with a callback)
                         ghex::tl::libfabric::receiver *rcv =
-                                controller->get_expected_receiver(src,
-                            [p=req.m_lf_ctxt](){
-                                p->m_ready = true;
-                                ghex::com_deb.debug(hpx::debug::str<>("Receive (future)"), "F(set)");
-                            });
+                                controller->get_expected_receiver(src);
 
                         // to support cancellation, we pass the context pointer (receiver)
                         // into the future shared state
@@ -247,83 +300,20 @@ namespace gridtools {
                             , "addr", hpx::debug::ptr(msg.data())
                             , "size", hpx::debug::hex<6>(msg.size()));
 
-                        rcv->pre_post_receive_msg(msg, stag);
+                        auto lambda = [p=req.m_lf_ctxt](){
+                            p->m_ready = true;
+                            ghex::com_deb.debug(hpx::debug::str<>("Recv (future)"), "F(set)");
+                        };
 
-                        return req;
-                    }
-
-                    /** @brief Function to poll the transport layer and check for completion of operations with an
-                      * associated callback. When an operation completes, the corresponfing call-back is invoked
-                      * with the message, rank and tag associated with this communication.
-                      * @return non-zero if any communication was progressed, zero otherwise. */
-                    progress_status progress() {
-                        return m_shared_state->m_controller->poll_for_work_completions();
-                    }
-
-                   /** @brief send a message and get notified with a callback when the communication has finished.
-                     * The ownership of the message is transferred to this communicator and it is safe to destroy the
-                     * message at the caller's site.
-                     * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                     * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
-                     * @param msg r-value reference to any_message instance
-                     * @param dst the destination rank
-                     * @param tag the communication tag
-                     * @param callback a callback instance
-                     * @return a request to test (but not wait) for completion */
-                    template<typename CallBack>
-                    request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
-                    {
-                        auto scp = ghex::com_deb.scope(this, __func__, "(callback)");
-                        ghex::com_deb.debug(hpx::debug::str<>("map"), m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
-
-                        std::uint64_t stag = make_tag64(tag);
-
-                        // get main libfabric controller
-                        auto controller = m_shared_state->m_controller;
-                        // get a sender
-                        ghex::tl::libfabric::sender *sndr = controller->get_sender(dst);
-                        sndr->message_region_external_ = true;
-
-                        // create a request
-                        std::shared_ptr<context_info> result(new context_info{false, nullptr});
-                        request req{controller, request_kind::recv, std::move(result)};
-
-                        const void *data_ptr = msg.data();
-                        std::size_t size = msg.size();
-
-                        auto lambda = [
-                                p=req.m_lf_ctxt,
-                                callback = std::forward<CallBack>(callback),
-                                msg = std::forward<message_type>(msg),
-                                dst, tag
-                                ]() mutable
-                           {
-                               p->m_ready = true;
-                               ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
-                                    , "F(set)", hpx::debug::dec<>(dst));
-                               callback(std::move(msg), dst, tag);
-                           };
-
-                        ghex::com_deb.debug(hpx::debug::str<>("Send (callback)")
-                            , "thisrank", hpx::debug::dec<>(rank())
-                            , "rank", hpx::debug::dec<>(dst)
-                            , "tag", hpx::debug::hex<16>(std::uint64_t(tag))
-                            , "cxt", hpx::debug::hex<8>(m_shared_state->m_context)
-                            , "stag", hpx::debug::hex<16>(stag)
-                            , "sndr", hpx::debug::ptr(sndr)
-                            , "addr", hpx::debug::ptr(msg.data())
-                            , "size", hpx::debug::hex<6>(msg.size()));
-
-                        // perform a send with the callback for when transfer is complete
-                        sndr->async_send_tagged(data_ptr, size, stag, std::move(lambda));
+                        rcv->receive_tagged_msg(msg, stag, std::move(lambda));
                         return req;
                     }
 
                     template<typename CallBack>
-                    request_cb_type recv(message_type&& msg, rank_type src, tag_type tag, CallBack&& callback)
+                    request_cb_type recv(message_type &&msg, rank_type src, tag_type tag, CallBack&& callback)
                     {
-                        auto scp = ghex::com_deb.scope(this, __func__, "(callback)");
-                        ghex::com_deb.debug(hpx::debug::str<>("map"), m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
+                        [[maybe_unused]] auto scp = ghex::com_deb.scope(this, __func__, "(callback)");
+                        ghex::com_deb.debug(hpx::debug::str<>("map contents"), m_shared_state->m_controller->memory_pool_->region_alloc_pointer_map_.debug_map());
 
                         std::uint64_t stag = make_tag64(tag);
 
@@ -334,31 +324,9 @@ namespace gridtools {
                         std::shared_ptr<context_info> result(new context_info{false, nullptr});
                         request req{controller, request_kind::recv, std::move(result)};
 
-                        // setup a callback that will set the future ready
-                        // move the message into the callback function
-                        auto lambda = [
-                                p=req.m_lf_ctxt,
-                                callback = std::forward<CallBack>(callback),
-                                msg = std::move<message_type>(std::forward<message_type>(msg)),
-                                src, tag
-                                ]() mutable
-                           {
-                               p->m_ready = true;
-                               ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
-                                    , "F(set)"
-                                    , "from rank", hpx::debug::dec<>(src)
-                                    , "triggering user callback");
-                                // move the message into the user's final callback
-                               callback(std::move(msg), src, tag);
-                               ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
-                                    , "F(set)"
-                                    , "from rank", hpx::debug::dec<>(src)
-                                    , "done user callback");
-                           };
-
                         // get a receiver object (tagged, with a callback)
                         ghex::tl::libfabric::receiver *rcv =
-                                controller->get_expected_receiver(src, std::move(lambda));
+                                controller->get_expected_receiver(src);
 
                         // to support cancellation, we pass the context pointer (receiver)
                         // into the future shared state
@@ -374,8 +342,35 @@ namespace gridtools {
                             , "addr", hpx::debug::ptr(msg.data())
                             , "size", hpx::debug::hex<6>(msg.size()));
 
-                        rcv->pre_post_receive_msg(msg, stag);
+                        // so that we can move the message into the callback,
+                        // we first init the message sender
+                        auto temp_msg_data = rcv->init_message_data(msg, stag);
+
+                        // now move message into callback
+                        auto lambda = [
+                             p        = req.m_lf_ctxt,
+                             msg      = std::forward<message_type>(msg),
+                             callback = std::forward<CallBack>(callback),
+                             src, tag
+                             ]() mutable
+                        {
+                            p->m_ready = true;
+                            ghex::com_deb.debug(hpx::debug::str<>("Recv (callback)")
+                                 , "F(set)", hpx::debug::dec<>(src));
+                            callback(std::move(msg), src, tag);
+                        };
+
+                        // perform a send with the callback for when transfer is complete
+                        rcv->receive_tagged_msg(temp_msg_data, std::move(lambda));
                         return req;
+                    }
+
+                    /** @brief Function to poll the transport layer and check for completion of operations with an
+                      * associated callback. When an operation completes, the corresponfing call-back is invoked
+                      * with the message, rank and tag associated with this communication.
+                      * @return non-zero if any communication was progressed, zero otherwise. */
+                    progress_status progress() {
+                        return m_shared_state->m_controller->poll_for_work_completions();
                     }
 
                     void barrier() {
