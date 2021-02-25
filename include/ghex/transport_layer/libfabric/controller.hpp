@@ -90,7 +90,7 @@
 int LIBFABRIC_ENDPOINT_TYPE()
 {
     auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
-    if (lf_ep_type) {
+    if (!lf_ep_type) {
         return 0;
     }
     if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
