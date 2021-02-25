@@ -39,12 +39,20 @@ void bind_to_core(int thrid)
 # define LIBFABRIC_PROGRESS_STRING "MANUAL"
 #endif
 
-#ifndef LIBFABRIC_ENDPOINT_MULTI_STRING
-# define LIBFABRIC_ENDPOINT_MULTI_STRING "SINGLE"
-#endif
+#ifndef LIBFABRIC_ENDPOINT_STRING
+    std::string libfabric_endpoint_type()
+    {
+        auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
+        if (lf_ep_type) {
+            if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
+                return "threadlocal";
+            if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
+                return "multiple";
+        }
+        return "single";
+    }
 
-#ifndef LIBFABRIC_ENDPOINT_THREADLOCAL_STRING
-# define LIBFABRIC_ENDPOINT_THREADLOCAL_STRING "NOTHREAD"
+# define LIBFABRIC_ENDPOINT_STRING libfabric_endpoint_type()
 #endif
 
 #endif /* INCLUDED_GHEX_UTILS_HPP */

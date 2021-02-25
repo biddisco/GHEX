@@ -158,7 +158,7 @@ bool test_values(const Domain& d, const Halos& halos, const Periodic& periodic, 
 TEST(communication_object_2, exchange)
 {
 
-    WAIT_FOR_DEBUGGER();
+//    WAIT_FOR_DEBUGGER();
 
     auto context_ptr = gridtools::ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
 

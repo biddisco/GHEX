@@ -199,8 +199,8 @@ int main(int argc, char *argv[])
                           << ", transport, " << ghex::tl::tag_to_string(transport{})
                           << ", BW MB/s, " << bw
                           << ", progress, " << LIBFABRIC_PROGRESS_STRING
-                          << ", endpoint, " << LIBFABRIC_ENDPOINT_MULTI_STRING
-                          << ", threadlocal, " << LIBFABRIC_ENDPOINT_THREADLOCAL_STRING << "\n";
+                          << ", endpoint, " << LIBFABRIC_ENDPOINT_STRING
+                          << "\n";
                 // clang-format on
             }
         }

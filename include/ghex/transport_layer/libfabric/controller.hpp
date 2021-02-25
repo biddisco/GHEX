@@ -76,24 +76,47 @@
 #define LIBFABRIC_PROGRESS \
     (std::getenv("LIBFABRIC_AUTO_PROGRESS") ? FI_PROGRESS_AUTO : FI_PROGRESS_MANUAL)
 
-#define LIBFABRIC_PROGRESS_STRING \
-    (std::getenv("LIBFABRIC_AUTO_PROGRESS") ? "AUTO" : "MANUAL")
+#ifndef LIBFABRIC_PROGRESS_STRING
+    std::string libfabric_progress_string() {
+        if (std::getenv("LIBFABRIC_AUTO_PROGRESS")) return "AUTO";
+        return "MANUAL";
+    }
+
+# define LIBFABRIC_PROGRESS_STRING libfabric_progress_string()
+#endif
 
 // ----------------------------------------
-// Enable/Disable shared endpoint or separate for send/recv
-#define LIBFABRIC_ENDPOINT_MULTI \
-    (std::getenv("LIBFABRIC_ENDPOINT_MULTI") ? true : false)
+// shared endpoint or separate for send/recv
+int LIBFABRIC_ENDPOINT_TYPE()
+{
+    auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
+    if (lf_ep_type) {
+        return 0;
+    }
+    if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
+        return 2;
+    if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
+        return 1;
+    if (std::string(lf_ep_type)==std::string("single") || std::atoi(lf_ep_type)==0)
+        return 0;
+    return 0;
+}
 
-#define LIBFABRIC_ENDPOINT_MULTI_STRING \
-    (std::getenv("LIBFABRIC_ENDPOINT_MULTI") ? "MULTIPLE" : "SINGLE")
+#ifndef LIBFABRIC_ENDPOINT_STRING
+    std::string libfabric_endpoint_type()
+    {
+        auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
+        if (lf_ep_type) {
+            if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
+                return "threadlocal";
+            if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
+                return "multiple";
+        }
+        return "single";
+    }
 
-// ----------------------------------------
-// Enable/Disable thread local endpoint send (and separate send/recv)
-#define LIBFABRIC_ENDPOINT_THREADLOCAL \
-    (std::getenv("LIBFABRIC_ENDPOINT_THREADLOCAL") ? true : false)
-
-#define LIBFABRIC_ENDPOINT_THREADLOCAL_STRING \
-    (std::getenv("LIBFABRIC_ENDPOINT_THREADLOCAL") ? "THREADLOCAL" : "NO_THREADLOCAL")
+# define LIBFABRIC_ENDPOINT_STRING libfabric_endpoint_type()
+#endif
 
 // ------------------------------------------------
 // Needed on Cray for GNI extensions
@@ -223,6 +246,12 @@ class controller;
         }
     };
 
+    enum class endpoint_type : int {
+        single      = 0,
+        multiple    = 1,
+        threadlocal = 2
+    };
+
     class controller
     {
     public:
@@ -243,8 +272,7 @@ class controller;
         struct fid_pep    *ep_passive_;
 
         struct fid_av     *av_;
-        bool               separate_endpoints_;
-        bool               threadlocal_endpoints_;
+        endpoint_type      endpoint_type_;
 
         std::atomic<std::uint32_t> bootstrap_counter_;
 
@@ -279,17 +307,12 @@ class controller;
           , fabric_domain_(nullptr)
           , ep_passive_(nullptr)
           , av_(nullptr)
-          , separate_endpoints_(false)
-          , threadlocal_endpoints_(false)
         {
             GHEX_DP_ONLY(cnt_deb, eval([](){ std::cout.setf(std::ios::unitbuf); }));
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
 
-            threadlocal_endpoints_ = LIBFABRIC_ENDPOINT_THREADLOCAL;
-            GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Endpoints"), LIBFABRIC_ENDPOINT_THREADLOCAL_STRING));
-
-            separate_endpoints_ = threadlocal_endpoints_ || LIBFABRIC_ENDPOINT_MULTI;
-            GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Endpoints"), LIBFABRIC_ENDPOINT_MULTI_STRING));
+            endpoint_type_ = static_cast<endpoint_type>(LIBFABRIC_ENDPOINT_TYPE());
+            GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Endpoints"), LIBFABRIC_ENDPOINT_STRING));
 
             open_fabric(provider, domain, rank);
 
@@ -319,9 +342,9 @@ class controller;
             // bind CQ to endpoint
             bind_queue_to_endpoint(ep_rx, rx_cq, FI_RECV);
 
-            if (threadlocal_endpoints_) {
+            if (endpoint_type_ == endpoint_type::threadlocal) {
                 ep_rx_ = std::make_unique<endpoint_wrapper>(ep_rx, rx_cq, nullptr);
-                // defer creation of Tx endpoint and CQ
+                // defer creation of threadlocal Tx endpoint and CQ
             }
             else {
                 // create a completion queue for tx
@@ -329,7 +352,7 @@ class controller;
                 auto tx_cq = create_completion_queue(fabric_domain_, fabric_info_->tx_attr->size);
 
                 // create an endpoint for sending
-                if (separate_endpoints_) {
+                if (endpoint_type_ == endpoint_type::multiple) {
                     // setup an endpoint for sending messages
                     // this endpoint will be thread local in future
                     auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, nullptr, rank);
@@ -348,9 +371,6 @@ class controller;
                 }
             }
 
-            // if using threadlocal endpoints, defer creation until thread requests it
-            if (!threadlocal_endpoints_) {
-            }
             // once enabled we can get the address
             enable_endpoint(ep_rx_->get_ep());
             here_ = get_endpoint_address(&ep_rx_->get_ep()->fid);
@@ -710,7 +730,7 @@ class controller;
         endpoint_wrapper *get_tx_endpoint()
         {
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
-            if (threadlocal_endpoints_) {
+            if (endpoint_type_ == endpoint_type::threadlocal) {
                 if (tl_tx_ == nullptr) {
                     // create tx endpoint for thread
                     auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, nullptr, -1);
@@ -724,7 +744,7 @@ class controller;
                 }
                 return tl_tx_.get();
             }
-            else if (separate_endpoints_) {
+            else if (endpoint_type_ == endpoint_type::multiple) {
                 [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__, "separate_endpoints_");
                 return ep_tx_.get();
             }
