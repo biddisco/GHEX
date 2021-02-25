@@ -271,6 +271,8 @@ namespace gridtools {
                             }
                             else if (ret == -FI_EAGAIN) {
                                 com_deb.error("Reposting fi_sendv / fi_tsendv");
+                                // no point stressing the system
+                                std::this_thread::sleep_for(std::chrono::microseconds(1));
                             }
                             else if (ret == -FI_ENOENT) {
                                 // if a node has failed, we can recover
@@ -313,6 +315,7 @@ namespace gridtools {
                             else if (ret == -FI_EAGAIN)
                             {
                                 com_deb.error("reposting fi_recv\n");
+                                // no point stressing the system
                                 std::this_thread::sleep_for(std::chrono::microseconds(1));
                             }
                             else if (ret != 0)
