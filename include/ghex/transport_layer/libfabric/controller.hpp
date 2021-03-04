@@ -71,51 +71,59 @@
 #include <ghex/transport_layer/libfabric/unique_function.hpp>
 //
 #include <mpi.h>
-// ----------------------------------------
-// Enable/Disable libfabric progress thread
-#define LIBFABRIC_PROGRESS \
-    (std::getenv("LIBFABRIC_AUTO_PROGRESS") ? FI_PROGRESS_AUTO : FI_PROGRESS_MANUAL)
 
-#ifndef LIBFABRIC_PROGRESS_STRING
+// ----------------------------------------
+// auto progress (libfabric thread) or manual
+// ----------------------------------------
+fi_progress libfabric_progress_type()
+{
+#if defined(GHEX_LIBFABRIC_SOCKETS) || defined(GHEX_LIBFABRIC_TCP)
+    return FI_PROGRESS_AUTO;
+#else
+    // if (std::getenv("LIBFABRIC_AUTO_PROGRESS") == nullptr)
+    return FI_PROGRESS_MANUAL;
+#endif
+}
+
     std::string libfabric_progress_string() {
-        if (std::getenv("LIBFABRIC_AUTO_PROGRESS")) return "AUTO";
-        return "MANUAL";
+    if (libfabric_progress_type() == FI_PROGRESS_AUTO)
+        return "auto";
+    return "manual";
     }
 
+#ifndef LIBFABRIC_PROGRESS_STRING
+# define LIBFABRIC_PROGRESS_TYPE   libfabric_progress_type()
 # define LIBFABRIC_PROGRESS_STRING libfabric_progress_string()
 #endif
 
 // ----------------------------------------
 // shared endpoint or separate for send/recv
-int LIBFABRIC_ENDPOINT_TYPE()
+// ----------------------------------------
+int libfabric_endpoint_type()
 {
     auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
-    if (!lf_ep_type) {
+    if (lf_ep_type == nullptr)
         return 0;
-    }
     if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
         return 2;
     if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
         return 1;
-    if (std::string(lf_ep_type)==std::string("single") || std::atoi(lf_ep_type)==0)
-        return 0;
     return 0;
 }
 
-#ifndef LIBFABRIC_ENDPOINT_STRING
-    std::string libfabric_endpoint_type()
+std::string libfabric_endpoint_string()
     {
-        auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
-        if (lf_ep_type) {
-            if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
+    auto lf_ep_type = libfabric_endpoint_type();
+    if (lf_ep_type == 2)
                 return "threadlocal";
-            if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
+    if (lf_ep_type == 1)
                 return "multiple";
-        }
         return "single";
     }
 
-# define LIBFABRIC_ENDPOINT_STRING libfabric_endpoint_type()
+
+#ifndef LIBFABRIC_ENDPOINT_STRING
+# define LIBFABRIC_ENDPOINT_STRING libfabric_endpoint_string()
 #endif
 
 // ------------------------------------------------
@@ -135,6 +143,7 @@ int LIBFABRIC_ENDPOINT_TYPE()
 namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> cnt_deb("CONTROL");
+static hpx::debug::enable_print<true>  cnt_err("CONTROL");
 }}
 
 namespace gridtools {
@@ -189,7 +198,9 @@ class controller;
         // libfabric requires some space for it's internal bookkeeping
         // so the first member of this struct must be fi_context
         fi_context                      context_reserved_space;
-        bool                            m_ready;
+    private:
+        std::atomic<bool>               m_ready;
+    public:
         endpoint_wrapper               *endpoint_;
         region_type                    *message_region_;
         libfabric_region_holder         message_holder_;
@@ -197,6 +208,18 @@ class controller;
             using tag_type = std::uint64_t;
             tag_type                        tag_;
             bool                            is_send_;
+
+        context_info(endpoint_wrapper *endpoint, tag_type tag, bool send)
+            : context_reserved_space()
+            , m_ready(false)
+            , endpoint_(endpoint)
+            , message_region_(nullptr)
+            , message_holder_()
+            , user_cb_()
+            , tag_(tag)
+            , is_send_(send)
+        {
+        }
 
         void init_message_data(const libfabric_msg_type &msg, uint64_t tag);
         void init_message_data(const any_libfabric_message &msg, uint64_t tag);
@@ -207,15 +230,25 @@ class controller;
         void init_message_data(Message &msg, uint64_t tag);
         int handle_send_completion();
         int handle_recv_completion(std::uint64_t /*len*/);
+
         //
+        inline bool ready() {
+            return m_ready.load(std::memory_order_relaxed);
+        }
+
         inline void set_ready() {
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("set_ready")
                                         , hpx::debug::hex<16>(tag_)
                                         , hpx::debug::str<4>(is_send_ ? "send" : "recv")));
-            if (m_ready) {
+            //
+            bool expected = false;
+            if (!m_ready.compare_exchange_strong(expected, true, std::memory_order_relaxed))
+            {
+                GHEX_DP_ONLY(cnt_err, debug(hpx::debug::str<>("set_ready")
+                                            , hpx::debug::hex<16>(tag_)
+                                            , hpx::debug::str<4>(is_send_ ? "send" : "recv")));
                 throw std::runtime_error("Future/Ready already set");
             }
-            m_ready = true;
         }
         //
         bool cancel();
@@ -311,7 +344,7 @@ class controller;
             GHEX_DP_ONLY(cnt_deb, eval([](){ std::cout.setf(std::ios::unitbuf); }));
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
 
-            endpoint_type_ = static_cast<endpoint_type>(LIBFABRIC_ENDPOINT_TYPE());
+            endpoint_type_ = static_cast<endpoint_type>(libfabric_endpoint_type());
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Endpoints"), LIBFABRIC_ENDPOINT_STRING));
 
             open_fabric(provider, domain, rank);
@@ -548,7 +581,7 @@ class controller;
 //            fabric_hints_->domain_attr->mr_mode = FI_MR_SCALABLE;
 #endif
             // Disable the use of progress threads
-            auto progress = LIBFABRIC_PROGRESS;
+            auto progress = libfabric_progress_type();
             fabric_hints_->domain_attr->control_progress = progress;
             fabric_hints_->domain_attr->data_progress = progress;
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("progress")

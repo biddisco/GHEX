@@ -82,11 +82,10 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
             bool ok = (fi_cancel(&this->endpoint_->get_ep()->fid, this) == 0);
             if (!ok) return ok;
 
-            // cleanup as if we had completed, but without calling any
-            // user callbacks
+            // cleanup as if we had completed, but without calling user callbacks
+            set_ready();
             //user_cb_ = [](){};
             message_region_ = nullptr;
-
             return ok;
         }
 
@@ -104,6 +103,11 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
             request_t(request_t &) = default;
             request_t& operator= (request_t &&) = default;
 
+            inline bool is_ready()
+            {
+                return m_lf_ctxt->ready();
+            }
+
             // we don't bother checking if m_controller is valid because
             // a request could/should never be created without it
             bool test()
@@ -111,7 +115,7 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
                 if (!m_lf_ctxt ) {
                     return true;
                 }
-                if (!m_lf_ctxt->m_ready) {
+                if (!is_ready()) {
                     if (m_lf_ctxt->is_send_) {
                         m_controller->poll_send_queue(m_lf_ctxt->endpoint_->get_tx_cq());
                     }
@@ -119,7 +123,13 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
                         m_controller->poll_recv_queue(m_lf_ctxt->endpoint_->get_rx_cq());
                     }
                 }
-                return m_lf_ctxt->m_ready;
+                return is_ready();
+            }
+
+            inline bool ready()
+            {
+                //return m_lf_ctxt->ready();
+                return test();
             }
 
             void wait()
@@ -135,7 +145,6 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
                 }
                 return false;
             }
-
         };
 
 }}}}

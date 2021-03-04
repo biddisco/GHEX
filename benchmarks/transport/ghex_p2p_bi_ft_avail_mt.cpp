@@ -37,6 +37,13 @@ using transport    = ghex::tl::libfabric_tag;
 using transport    = ghex::tl::mpi_tag;
 #endif
 
+#ifndef LIBFABRIC_PROGRESS_STRING
+#define LIBFABRIC_PROGRESS_STRING "manual"
+#endif
+
+#ifndef LIBFABRIC_ENDPOINT_STRING
+#define LIBFABRIC_ENDPOINT_STRING "single"
+#endif
 const char *syncmode = "future";
 const char *waitmode = "avail";
 

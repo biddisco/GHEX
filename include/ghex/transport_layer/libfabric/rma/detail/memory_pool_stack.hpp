@@ -125,9 +125,10 @@ namespace detail
             }
 #endif
             region_type* region = nullptr;
-            while (!free_list_.pop(region)) {
+            while (free_list_.pop(region)) {
+                GHEX_DP_ONLY(mps_deb, trace(hpx::debug::str<>(PoolType::desc()), "Delete", *region));
                 // clear our stack
-                delete region;
+                // delete region;
             }
             // wipe our copies of sub-regions (no clear function for std::array)
             std::fill(region_list_.begin(), region_list_.end(), region_type());

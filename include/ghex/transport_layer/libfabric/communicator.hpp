@@ -23,6 +23,7 @@ namespace gridtools {
 
         // cppcheck-suppress ConfigurationNotChecked
         static hpx::debug::enable_print<false> com_deb("COMMUNI");
+        static hpx::debug::enable_print<true> com_err("COMMUNI");
 
         namespace tl {
             namespace libfabric {
@@ -259,6 +260,7 @@ namespace gridtools {
                                                     , "tag", hpx::debug::hex<16>(tag_)));
 
                         bool ok = false;
+                        int retries = 0, mult = 0;
                         while (!ok) {
                             ssize_t ret;
                             ret = fi_tsend(m_state->m_tx_endpoint->get_ep(),
@@ -272,7 +274,12 @@ namespace gridtools {
                             else if (ret == -FI_EAGAIN) {
                                 com_deb.error("Reposting fi_sendv / fi_tsendv");
                                 // no point stressing the system
-                                std::this_thread::sleep_for(std::chrono::microseconds(1));
+                                progress();
+                                //std::this_thread::sleep_for(std::chrono::microseconds(1));
+                                if (retries++>100) {
+                                    com_err.error("FI_EAGAIN fi_tsendv", hpx::debug::dec<5>(++mult));
+                                    retries = 0;
+                                }
                             }
                             else if (ret == -FI_ENOENT) {
                                 // if a node has failed, we can recover
@@ -302,6 +309,7 @@ namespace gridtools {
 
                         // this should never actually return true and yield/sleep
                         bool ok = false;
+                        int retries = 0, mult = 0;
                         while(!ok) {
                             uint64_t ignore = 0;
                             ssize_t ret = fi_trecv(m_shared_state->m_rx_endpoint->get_ep(),
@@ -316,7 +324,12 @@ namespace gridtools {
                             {
                                 com_deb.error("reposting fi_recv\n");
                                 // no point stressing the system
-                                std::this_thread::sleep_for(std::chrono::microseconds(1));
+                                progress();
+                                //std::this_thread::sleep_for(std::chrono::microseconds(1));
+                                if (retries++>100) {
+                                    com_err.error("FI_EAGAIN fi_tsendv", hpx::debug::dec<5>(++mult));
+                                    retries = 0;
+                                }
                             }
                             else if (ret != 0)
                             {
@@ -347,10 +360,7 @@ namespace gridtools {
                             controller,
                             request_kind::send,
                             std::shared_ptr<context_info>(
-                                        new context_info{fi_context{}, false,
-                                                         m_state->m_tx_endpoint,
-                                                         nullptr,
-                                                         libfabric_region_holder(), [](){}, stag, true})
+                                        new context_info(m_state->m_tx_endpoint, stag, true))
                         };
 
                         req.m_lf_ctxt->user_cb_ = [p=req.m_lf_ctxt]() {
@@ -410,10 +420,7 @@ namespace gridtools {
                             controller,
                             request_kind::send,
                             std::shared_ptr<context_info>(
-                                        new context_info{fi_context{}, false,
-                                                         m_state->m_tx_endpoint,
-                                                         nullptr,
-                                                         libfabric_region_holder(), [](){}, stag, true})
+                                        new context_info(m_state->m_tx_endpoint, stag, true))
                         };
 
                         req.m_lf_ctxt->init_message_data(msg, stag);
@@ -476,10 +483,7 @@ namespace gridtools {
                             controller,
                             request_kind::recv,
                             std::shared_ptr<context_info>(
-                                        new context_info{fi_context{}, false,
-                                                         m_shared_state->m_rx_endpoint,
-                                                         nullptr,
-                                                         libfabric_region_holder(), [](){}, stag, false})
+                                        new context_info(m_shared_state->m_rx_endpoint, stag, false))
                         };
 
                         req.m_lf_ctxt->init_message_data(msg, stag);
@@ -520,10 +524,7 @@ namespace gridtools {
                             controller,
                             request_kind::recv,
                             std::shared_ptr<context_info>(
-                                        new context_info{fi_context{}, false,
-                                                         m_shared_state->m_rx_endpoint,
-                                                         nullptr,
-                                                         libfabric_region_holder(), [](){}, stag, false})
+                                        new context_info(m_shared_state->m_rx_endpoint, stag, false))
                         };
 
                         req.m_lf_ctxt->init_message_data(msg, stag);

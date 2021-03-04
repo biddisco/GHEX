@@ -38,19 +38,19 @@ namespace gridtools{
                 future_t& operator=(const future_t&) = delete;
                 future_t& operator=(future_t&&) = default;
 
-                void wait() noexcept
+                inline void wait() noexcept
                 {
                     m_handle.wait();
                 }
 
-                bool test() noexcept
+                inline bool test() noexcept
                 {
                     return m_handle.test();
                 }
 
-                bool ready() noexcept
+                inline bool ready() noexcept
                 {
-                    return m_handle.test();
+                    return m_handle.ready();
                 }
 
                 [[nodiscard]] value_type get()
@@ -83,27 +83,27 @@ namespace gridtools{
                 future_t& operator=(const future_t&) = delete;
                 future_t& operator=(future_t&&) = default;
 
-                void wait() noexcept
+                inline void wait() noexcept
                 {
                     m_handle.wait();
                 }
 
-                bool test() noexcept
+                inline bool test() noexcept
                 {
                     return m_handle.test();
                 }
 
-                bool ready() noexcept
+                inline bool ready() noexcept
                 {
-                    return m_handle.test();
+                    return m_handle.ready();
                 }
 
-                void get()
+                inline void get()
                 {
                     wait();
                 }
 
-                bool cancel()
+                inline bool cancel()
                 {
                     return m_handle.cancel();
                 }
