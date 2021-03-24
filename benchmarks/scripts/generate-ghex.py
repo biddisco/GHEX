@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[10]:
+# In[1]:
 
 
 from itertools import product
@@ -32,7 +32,7 @@ scriptpath = os.path.dirname(os.path.abspath(scriptname))
 print(f'CWD        : {cwd} \nScriptpath : {scriptpath} \nHostname   : {hostname}')
 
 
-# In[11]:
+# In[2]:
 
 
 def is_notebook():
@@ -54,7 +54,7 @@ if is_notebook():
     get_ipython().system('jupyter nbconvert --to script generate-ghex.ipynb')
 
 
-# In[12]:
+# In[3]:
 
 
 # ------------------------------------------------------------------
@@ -75,7 +75,16 @@ else:
     args = get_command_line_args()
 
 
-# In[13]:
+# In[4]:
+
+
+def make_executable(path):
+    mode = os.stat(path).st_mode
+    mode |= (mode & 0o444) >> 2    # copy R bits to X
+    os.chmod(path, mode)
+
+
+# In[5]:
 
 
 # strings with @xxx@ will be substituted by cmake
@@ -89,7 +98,7 @@ else:
 print(f'Generating scripts in {run_dir}')
 
 
-# In[14]:
+# In[6]:
 
 
 #
@@ -112,18 +121,20 @@ def num_messages(vmax, vmin, center, width, x):
     return vmin + (vmax-vmin)*s #(s-vmin)/(vmax-vmin) # normalize function to 0-1
 
 
-# In[15]:
+# In[7]:
 
 
 cscs = {}
 
 # jb laptop
 cscs["oryx2"] = {
+  "Machine":"system76",
   "Cores": 8,
   "Threads per core": 2,
   "Allowed rpns": [1, 2],
-  "thread_array": [1,2,4,8],
-  "sleeptime":0,
+  "Thread_array": [4],
+  "Sleeptime":0,
+  "Launch": "pushd {job_path} && source {job_file} && popd",
   "Run command": "mpiexec -n {total_ranks} --oversubscribe",
   "Batch preamble": """
 #!/bin/bash -l
@@ -137,12 +148,14 @@ export OMP_NUM_THREADS={threads}
 
 # daint mc nodes config
 cscs["daint"] = {
+  "Machine":"daint",
   "Cores": 36,
   "Threads per core": 2,
   "Allowed rpns": [1, 2],
-  "thread_array": [1,2,4,8,16,32],
-  "sleeptime":0.25,
-  "Run command": "srun -n {total_ranks} -c {threads_per_rank}",
+  "Thread_array": [1,2,4,8,16,32],
+  "Sleeptime":0.25,
+  "Launch": "sbatch --chdir={job_path} {job_file}",
+  "Run command": "srun --unbuffered -n {total_ranks} -c {threads_per_rank}",
   "Batch preamble": """
 #!/bin/bash -l
 #SBATCH --job-name={run_name}_{nodes}_{size}_{inflight}_{threads}
@@ -168,7 +181,7 @@ printenv > env.txt
 }
 
 
-# In[16]:
+# In[8]:
 
 
 #
@@ -201,12 +214,14 @@ def write_job_file(system, launch_file, job_dir, job_text, suffix=''):
     job_path = os.path.expanduser(job_dir)
     os.makedirs(job_path, exist_ok=True)
     job_file = f"{job_path}/job_{suffix}.sh"
+    print(f"Generating : {job_path} : {job_file}")
+
     with open(job_file, "w") as f:
         f.write(job_text)
+        make_executable(job_file)
 
-    print(f"Submitting : {job_path} : {job_file}")
-    launchstring  = f'sbatch --chdir={job_path} {job_file}\n'
-    launchstring += 'sleep ' + str(system['sleeptime']) + '\n'
+    launchstring  = system["Launch"].format(job_path=job_path,job_file=job_file) + '\n'
+    launchstring += 'sleep ' + str(system['Sleeptime']) + '\n'
     launch_file.write(launchstring)
 
 #
@@ -215,9 +230,12 @@ def write_job_file(system, launch_file, job_dir, job_text, suffix=''):
 def ghex(system, bin_dir, timeout, transport, progs, nodes, threads, msg, size, inflight, extra_flags="", env=""):
     total_ranks = 2
     whole_cmd = ""
+
     # mpi oes not have suffix, other transport layers use '_libfabric', '_ucx', eetc
     suffix = f'_{transport}' if transport!='mpi' else ''
     for prog in progs:
+
+        outfile = f'{prog}_{msg}_{size}_{inflight}.out'
 
         # generate the program commmand with command line params
         cmd = f"{bin_dir}/{prog}{suffix} {msg} {size} {inflight}"
@@ -225,36 +243,38 @@ def ghex(system, bin_dir, timeout, transport, progs, nodes, threads, msg, size, 
         # get the launch command (mpiexec, srun, etc)
         run_cmd = run_command(system, total_ranks, threads)
 
+        lf_env = env
+        # for timeouts use : f'timeout {timeout} {run_cmd} '
         # simple version of benchmark
-        temp = "\n" + f"{env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-        whole_cmd += temp +'\n'
+        full_command = f"{lf_env} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
+        command_prologue  = f'printf "\\n# -- Executing --\\n{full_command} \\n# ---------------\\n" >> {outfile}'
+        command_epilogue  = f'printf "\\n# -- Completed --\\n\\n" >> {outfile}'
+        whole_cmd   += '\n' + command_prologue + '\n' + full_command + '\n' + command_epilogue + '\n'
 
         # for libfabric, run benchmark again with extra environment options to control execution
         if transport=='libfabric':
-            lf_env = env + 'LIBFABRIC_AUTO_PROGRESS=1'
-            temp = "\n" + f"{lf_env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-            whole_cmd += temp +'\n'
-
             lf_env = env + 'LIBFABRIC_ENDPOINT_TYPE=multiple'
-            temp = "\n" + f"{lf_env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-            whole_cmd += temp +'\n'
+            full_command = f"{lf_env} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
+            command_prologue  = f'printf "\\n# -- Executing --\\n{full_command} \\n# ---------------\\n" >> {outfile}'
+            command_epilogue  = f'printf "\\n# -- Completed --\\n\\n" >> {outfile}'
+            whole_cmd   += '\n' + command_prologue + '\n' + full_command + '\n' + command_epilogue + '\n'
 
             lf_env = env + 'LIBFABRIC_ENDPOINT_TYPE=threadlocal'
-            temp = "\n" + f"{lf_env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-            whole_cmd += temp +'\n'
+            full_command = f"{lf_env} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
+            command_prologue  = f'printf "\\n# -- Executing --\\n{full_command} \\n# ---------------\\n" >> {outfile}'
+            command_epilogue  = f'printf "\\n# -- Completed --\\n\\n" >> {outfile}'
+            whole_cmd   += '\n' + command_prologue + '\n' + full_command + '\n' + command_epilogue + '\n'
 
-            lf_env = env + 'LIBFABRIC_AUTO_PROGRESS=1 ' + 'LIBFABRIC_ENDPOINT_TYPE=multiple'
-            temp = "\n" + f"{lf_env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-            whole_cmd += temp +'\n'
-
-            lf_env = env + 'LIBFABRIC_AUTO_PROGRESS=1 ' + 'LIBFABRIC_ENDPOINT_TYPE=threadlocal'
-            temp = "\n" + f"{lf_env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
-            whole_cmd += temp +'\n'
+#             lf_env = env + 'LIBFABRIC_AUTO_PROGRESS=1 ' + 'LIBFABRIC_ENDPOINT_TYPE=threadlocal'
+#             full_command = f"{env} timeout {timeout} {run_cmd} {cmd} >> {prog}_{msg}_{size}_{inflight}.out".strip()
+#             command_prologue  = f'printf "\\n# -- Executing --\\n{full_command} \\n# ---------------\\n" >> {outfile}'
+#             command_epilogue  = f'printf "\\n# -- Completed --\\n\\n" >> {outfile}'
+#             whole_cmd   += '\n' + command_prologue + '\n' + full_command + '\n' + command_epilogue + '\n'
 
     return whole_cmd
 
 
-# In[17]:
+# In[9]:
 
 
 system = cscs[hostname]
@@ -266,9 +286,10 @@ timestr        = time.strftime('%H:%M:%S', time.gmtime(time_min))
 ranks_per_node = 1
 nodes_arr = [2]
 trans_arr = ['libfabric', 'mpi']
-thrd_arr  = system['thread_array']
-size_arr  = [1,100,1000,10000,100000,500000,1000000]
+thrd_arr  = system['Thread_array']
+size_arr  = [1,10,100,1000,10000,100000,1000000]
 nmsg_lut  = {1:500000,
+             10:500000,
              100:500000,
              1000:500000,
              5000:250000,
@@ -283,11 +304,11 @@ nmsg_lut  = {1:500000,
 #for i in size_arr:
 #    print(int(num_messages(1E6, 25E3, 1E5, 1E-5, i)))
 
-flight_arr= [1,4,64]
+flight_arr= [1,4,16,64]
 prog_arr  = ["ghex_p2p_bi_cb_avail_mt", "ghex_p2p_bi_cb_wait_mt", "ghex_p2p_bi_ft_avail_mt", "ghex_p2p_bi_ft_wait_mt"]
 
 
-# In[18]:
+# In[10]:
 
 
 combos = 0
@@ -297,6 +318,8 @@ if run_dir.startswith('@'):
 else:
     job_launch = f"{run_dir}/launch.sh"
     job_launch_file = open(job_launch, "w")
+    #
+    job_launch_file.write("#!/bin/bash -l\n")
 
 # generate all combinations in one monster loop
 for nodes, transport, threads, size, inflight in product(
@@ -335,9 +358,9 @@ for nodes, transport, threads, size, inflight in product(
 
     if combos==1:
         print('Uncommment the following line to perform the job creation')
-    # uncomment this to create job scripts
     write_job_file(system, job_launch_file, job_dir, job_text)
 
+make_executable(job_launch)
 print(combos)
 
 

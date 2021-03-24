@@ -35,22 +35,10 @@
 #define RDMA_POOL_MEDIUM_CHUNK_SIZE 0x040*0x0400 // 64KB
 #define RDMA_POOL_LARGE_CHUNK_SIZE  0x400*0x0400 //  1MB
 
-#define RDMA_POOL_MAX_1K_CHUNKS     1024
-#define RDMA_POOL_MAX_SMALL_CHUNKS  2048
-#define RDMA_POOL_MAX_MEDIUM_CHUNKS 256
-#define RDMA_POOL_MAX_LARGE_CHUNKS  256
-
-// if the HPX configuration has set a different value, use it
-#if defined(GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE)
-# undef RDMA_POOL_SMALL_CHUNK_SIZE
-# define RDMA_POOL_SMALL_CHUNK_SIZE GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE
-#else
-# define GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE 1024
-# define RDMA_POOL_SMALL_CHUNK_SIZE GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE
-#endif
-
-static_assert ( GHEX_LIBFABRIC_MEMORY_CHUNK_SIZE<RDMA_POOL_MEDIUM_CHUNK_SIZE ,
-"Default memory Chunk size must be less than medium chunk size" );
+#define RDMA_POOL_NUM_1K_CHUNKS     1024
+#define RDMA_POOL_NUM_SMALL_CHUNKS  2048
+#define RDMA_POOL_NUM_MEDIUM_CHUNKS 64
+#define RDMA_POOL_NUM_LARGE_CHUNKS  16
 
 namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
@@ -121,17 +109,13 @@ namespace rma
         // constructor
         memory_pool(domain_type *pd) :
             protection_domain_(pd),
-            tiny_  (pd),
-            small_ (pd),
-            medium_(pd),
-            large_ (pd),
+            tiny_  (pd, RDMA_POOL_NUM_1K_CHUNKS),
+            small_ (pd, RDMA_POOL_NUM_SMALL_CHUNKS),
+            medium_(pd, RDMA_POOL_NUM_MEDIUM_CHUNKS),
+            large_ (pd, RDMA_POOL_NUM_LARGE_CHUNKS),
             temp_regions(0),
             user_regions(0)
         {
-            tiny_.allocate_pool();
-            small_.allocate_pool();
-            medium_.allocate_pool();
-            large_.allocate_pool();
             GHEX_DP_ONLY(pool_deb, debug(hpx::debug::str<>("initialization"), "complete"));
         }
 
@@ -301,6 +285,7 @@ namespace rma
         // a region instead in the first place
         memory_region *region_from_address(void const * addr)
         {
+            throw(std::runtime_error("Don't use region_from_address for benchmarks"));
             GHEX_DP_ONLY(pool_deb, trace(hpx::debug::str<>("Expensive")
                 , "region_from_address"));
             auto present = region_alloc_pointer_map_.is_in_map(addr);
@@ -318,7 +303,7 @@ namespace rma
 
         void add_address_to_map(void const * addr, region_type* region)
         {
-//            throw(std::runtime_error("Don't use this for benchmarks"));
+            throw(std::runtime_error("Don't use add_address_to_map for benchmarks"));
             GHEX_DP_ONLY(pool_deb, trace(hpx::debug::str<>("Expensive")
                 , "add_address_to_map"
                 , hpx::debug::ptr(addr), *region));
@@ -328,6 +313,7 @@ namespace rma
 
         void remove_address_from_map(void const * addr, memory_region* region)
         {
+            throw(std::runtime_error("Don't use remove_address_from_map for benchmarks"));
             GHEX_DP_ONLY(pool_deb, trace(hpx::debug::str<>("map contents")
                                 , region_alloc_pointer_map_.debug_map()));
             GHEX_DP_ONLY(pool_deb, trace(hpx::debug::str<>("Expensive")
@@ -342,13 +328,13 @@ namespace rma
 
         // maintain 4 pools of thread safe pre-allocated regions of fixed size.
         detail::memory_pool_stack<RegionProvider, allocator_type, detail::pool_tiny,
-            RDMA_POOL_1K_CHUNK_SIZE,         RDMA_POOL_MAX_1K_CHUNKS> tiny_;
+            RDMA_POOL_1K_CHUNK_SIZE> tiny_;
         detail::memory_pool_stack<RegionProvider, allocator_type, detail::pool_small,
-            RDMA_POOL_SMALL_CHUNK_SIZE,   RDMA_POOL_MAX_SMALL_CHUNKS> small_;
+            RDMA_POOL_SMALL_CHUNK_SIZE> small_;
         detail::memory_pool_stack<RegionProvider, allocator_type, detail::pool_medium,
-            RDMA_POOL_MEDIUM_CHUNK_SIZE, RDMA_POOL_MAX_MEDIUM_CHUNKS> medium_;
+            RDMA_POOL_MEDIUM_CHUNK_SIZE> medium_;
         detail::memory_pool_stack<RegionProvider, allocator_type, detail::pool_large,
-            RDMA_POOL_LARGE_CHUNK_SIZE,   RDMA_POOL_MAX_LARGE_CHUNKS> large_;
+            RDMA_POOL_LARGE_CHUNK_SIZE> large_;
 
         // counters
         hpx::util::atomic_count temp_regions;

@@ -3,8 +3,7 @@
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#ifndef HPX_PARCELSET_POLICIES_RMA_memory_block_allocator
-#define HPX_PARCELSET_POLICIES_RMA_memory_block_allocator
+#pragma once
 
 #include "ghex_libfabric_defines.hpp"
 //
@@ -37,11 +36,13 @@ namespace detail
     // --------------------------------------------------------------------
     // This is a simple class that implements only malloc and free but is
     // templated over the memory region provider which is transport layer
-    // dependent. This class is used internally by the rma memory pools to
-    // allocate blocks and should not be called by user code directly.
-    // The allocator is intended to be used to generate large blocks that are
-    // subdivided and used by the memory pools and not to allocate many
-    // small blocks. These blocks are returned as shared pointers.
+    // dependent. The blocks returned are registered using the API
+    // of the region provider and returned to the pool that is using
+    // this alllocator where they are sub-divided into smalller blocks
+    // and used by user facing code. Users should not directly call this
+    // allocator, but instead use the memory pool.
+    // Blocks are returned from this allocator as shared pointers to
+    // memory regions.
     template <typename RegionProvider>
     struct memory_block_allocator
     {
@@ -72,5 +73,3 @@ namespace detail
     };
 
 }}}}}}
-
-#endif

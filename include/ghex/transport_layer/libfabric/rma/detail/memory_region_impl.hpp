@@ -4,8 +4,7 @@
 //  Distributed under the Boost Software License, Version 1.0. (See accompanying
 //  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#ifndef GHEX_RMA_MEMORY_REGION_IMPL
-#define GHEX_RMA_MEMORY_REGION_IMPL
+#pragma once
 
 #include <ghex/transport_layer/libfabric/rma/detail/memory_region_traits.hpp>
 #include <ghex/transport_layer/libfabric/rma/memory_region.hpp>
@@ -30,9 +29,9 @@ namespace detail
     // by a particular region provider. Each provider (infiniband, libfabric,
     // other) has a different definition for the region object and the protection
     // domain used to limit access.
-    // Code that does not 'know' which parcelport is being used, must use
-    // the memory_region class to manage regions, but parcelport code
-    // may use the correct type for the parcelport in question.
+    // Code that does not 'know' which transport layer is being used, should use
+    // the memory_region class to manage regions, but transport layer code
+    // may use the correct type for the layer in question.
     // --------------------------------------------------------------------
     template <typename RegionProvider>
     class memory_region_impl : public memory_region
@@ -187,5 +186,3 @@ namespace detail
     };
 
 }}}}}}
-
-#endif
