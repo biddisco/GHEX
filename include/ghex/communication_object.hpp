@@ -47,10 +47,12 @@ namespace gridtools {
             using communicator_t = typename Pattern::communicator_type;
             /** @brief future type, deduced form communicator, of type void*/
             using future_t = typename communicator_t::template future<void>;
+            /** @brief allocator type, deduced from communicator, of type void*/
+            using allocator_t = typename communicator_t::template allocator_type<unsigned char>;
             /** @brief send buffer type, for now set to vector of bytes*/
-            using s_buffer_t = tl::message_buffer<>;
+            using s_buffer_t = tl::message_buffer<allocator_t>;
             /** @brief receive buffer type, for now set to vector of bytes*/
-            using r_buffer_t = tl::message_buffer<>;
+            using r_buffer_t = tl::message_buffer<allocator_t>;
             /** @brief send request type, simply a future*/
             using s_request_t = future_t;
             /** @brief receive request type, 1:1 mapping between receive halo index, domain and receive request*/

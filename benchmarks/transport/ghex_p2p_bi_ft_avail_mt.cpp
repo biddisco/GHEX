@@ -8,9 +8,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  */
-#include <iostream>
-#include <vector>
 #include <atomic>
+#include <iostream>
+#include <sstream>
+#include <vector>
+#include <iterator>
+#include <algorithm>
 #ifdef USE_OPENMP
 #include <omp.h>
 #endif
@@ -19,25 +22,53 @@
 #include <ghex/transport_layer/util/barrier.hpp>
 #include "utils.hpp"
 
+// clang-format off
+#define buffered_out(x) {    \
+    std::stringstream temp;  \
+    temp << x << std::endl;  \
+    std::cout << temp.str(); }
+
+#undef buffered_out
+#define buffered_out(x)
+// clang-format on
+
 namespace ghex = gridtools::ghex;
 
 #ifdef USE_UCP
 // UCX backend
 #include <ghex/transport_layer/ucx/context.hpp>
-using transport    = ghex::tl::ucx_tag;
+using transport = ghex::tl::ucx_tag;
+
+#elif defined(USE_LIBFABRIC)
+// libfabric backend
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = ghex::tl::libfabric_tag;
+
 #else
 // MPI backend
 #include <ghex/transport_layer/mpi/context.hpp>
-using transport    = ghex::tl::mpi_tag;
+using transport = ghex::tl::mpi_tag;
 #endif
 
+#ifndef LIBFABRIC_PROGRESS_STRING
+#define LIBFABRIC_PROGRESS_STRING "manual"
+#endif
+
+#ifndef LIBFABRIC_ENDPOINT_STRING
+#define LIBFABRIC_ENDPOINT_STRING "single"
+#endif
+const char* syncmode = "future";
+const char* waitmode = "avail";
+
 #include <ghex/transport_layer/message_buffer.hpp>
-using context_type = typename ghex::tl::context_factory<transport>::context_type;
+using context_type =
+    typename ghex::tl::context_factory<transport>::context_type;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::future<void>;
-
-using MsgType = gridtools::ghex::tl::message_buffer<>;
-
+using allocator_type =
+    typename communicator_type::template allocator_type<unsigned char>;
+using MsgType = gridtools::ghex::tl::message_buffer<allocator_type>;
+using tag_type = typename communicator_type::tag_type;
 
 #ifdef USE_OPENMP
 std::atomic<int> sent(0);
@@ -57,18 +88,23 @@ int tail_recv(0);
 #define THREADID 0
 #endif
 
-int main(int argc, char *argv[])
+#include <ghex/transport_layer/libfabric/print.hpp>
+
+static hpx::debug::enable_print<true> tst_deb("FTAVAIL");
+
+int main(int argc, char* argv[])
 {
     int niter, buff_size;
     int inflight;
     int mode;
     gridtools::ghex::timer timer, ttimer;
 
-    if(argc != 4)
-	{
-	    std::cerr << "Usage: bench [niter] [msg_size] [inflight]" << "\n";
-	    std::terminate();
-	}
+    if (argc != 4)
+    {
+        std::cerr << "Usage: bench [niter] [msg_size] [inflight]"
+                  << "\n";
+        std::terminate();
+    }
     niter = atoi(argv[1]);
     buff_size = atoi(argv[2]);
     inflight = atoi(argv[3]);
@@ -86,7 +122,8 @@ int main(int argc, char *argv[])
 
 #ifdef USE_OPENMP
     MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &mode);
-    if(mode != MPI_THREAD_MULTIPLE){
+    if (mode != MPI_THREAD_MULTIPLE)
+    {
         std::cerr << "MPI_THREAD_MULTIPLE not supported by MPI, aborting\n";
         std::terminate();
     }
@@ -95,40 +132,47 @@ int main(int argc, char *argv[])
 #endif
 
     {
-        auto context_ptr = ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
+        auto context_ptr =
+            ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
         auto& context = *context_ptr;
 
 #ifdef USE_OPENMP
 #pragma omp parallel
 #endif
         {
-            auto comm              = context.get_communicator();
-            const auto rank        = comm.rank();
-            const auto size        = comm.size();
-            const auto thread_id   = THREADID;
-            const auto peer_rank   = (rank+1)%2;
+            auto comm = context.get_communicator();
+            const auto rank = comm.rank();
+            const auto size = comm.size();
+            const auto thread_id = THREADID;
+            const auto peer_rank = (rank + 1) % 2;
 
             bool using_mt = false;
 #ifdef USE_OPENMP
             using_mt = true;
 #endif
 
-            if (thread_id==0 && rank==0)
-		{
-		    std::cout << "\n\nrunning test " << __FILE__ << " with communicator " << typeid(comm).name() << "\n\n";
-		};
+            if (thread_id == 0 && rank == 0)
+            {
+                std::cout << "\n\nrunning test " << __FILE__
+                          << " with communicator " << typeid(comm).name()
+                          << "\n\n";
+            };
 
             std::vector<MsgType> smsgs(inflight);
             std::vector<MsgType> rmsgs(inflight);
             std::vector<future_type> sreqs(inflight);
             std::vector<future_type> rreqs(inflight);
-            for(int j=0; j<inflight; j++)
-		{
-		    smsgs[j].resize(buff_size);
-		    rmsgs[j].resize(buff_size);
-		    make_zero(smsgs[j]);
-		    make_zero(rmsgs[j]);
-		}
+            std::vector<int> scnt(inflight);
+            std::vector<int> rcnt(inflight);
+            for (int j = 0; j < inflight; j++)
+            {
+                smsgs[j].resize(buff_size);
+                rmsgs[j].resize(buff_size);
+                make_zero(smsgs[j]);
+                make_zero(rmsgs[j]);
+                scnt[j] = 0;
+                rcnt[j] = 0;
+            }
 
 #ifdef USE_OPENMP
 #pragma omp single
@@ -138,72 +182,120 @@ int main(int argc, char *argv[])
 #pragma omp barrier
 #endif
 
-            if(thread_id == 0)
-		{
-		    timer.tic();
-		    ttimer.tic();
-		    if(rank == 1)
-			std::cout << "number of threads: " << num_threads << ", multi-threaded: " << using_mt << "\n";
-		}
+            if (thread_id == 0)
+            {
+                timer.tic();
+                ttimer.tic();
+                if (rank == 1)
+                    std::cout << "number of threads: " << num_threads
+                              << ", multi-threaded: " << using_mt << "\n";
+            }
 
             int dbg = 0, sdbg = 0, rdbg = 0;
             int last_received = 0;
             int last_sent = 0;
-            int lsent = 0, lrecv = 0;       
-            while(sent < niter || received < niter)
-		{
-		    for(int j=0; j<inflight; j++)
-			{
-			    if(rank==0 && thread_id==0 && sdbg>=(niter/10)) {
-				std::cout << sent << " sent\n";
-				sdbg = 0;
-			    }
+            int lsent = 0, lrecv = 0;
+            while (sent < niter || received < niter)
+            {
+                for (int j = 0; j < inflight; j++)
+                {
+                    if (rank == 0 && thread_id == 0 && sdbg >= (niter / 10))
+                    {
+                        std::cout << sent << " sent\n";
+                        sdbg = 0;
+                    }
 
-			    if(rank==0 && thread_id==0 && rdbg>=(niter/10)) {
-				std::cout << received << " received\n";
-				rdbg = 0;
-			    }
+                    if (rank == 0 && thread_id == 0 && rdbg >= (niter / 10))
+                    {
+                        std::cout << received << " received\n";
+                        rdbg = 0;
+                    }
 
-			    if(thread_id == 0 && dbg >= (niter/10)) {
-				dbg = 0;
-				std::cout << rank << " total bwdt MB/s:      "
-					  << ((double)(received-last_received + sent-last_sent)*size*buff_size/2)/timer.toc()
-					  << "\n";
-				timer.tic();
-				last_received = received;
-				last_sent = sent;
-			    }
+                    if (thread_id == 0 && dbg >= (niter / 10))
+                    {
+                        dbg = 0;
+                        std::cout << rank << " total bwdt MB/s:      "
+                                  << ((double) (received - last_received +
+                                          sent - last_sent) *
+                                         size * buff_size / 2) /
+                                timer.toc()
+                                  << "\n";
+                        timer.tic();
+                        last_received = received;
+                        last_sent = sent;
+                    }
 
-			    if(rreqs[j].test()) {
-				received++;
-				lrecv++;
-				rdbg+=num_threads;
-				dbg+=num_threads;
-				rreqs[j] = comm.recv(rmsgs[j], peer_rank, thread_id*inflight + j);
-			    }
+                    if (rreqs[j].test())
+                    {
+                        received++;
+                        lrecv++;
+                        rdbg += num_threads;
+                        dbg += num_threads;
+                        rreqs[j] = comm.recv(
+                            rmsgs[j], peer_rank, thread_id * inflight + j);
+                        rcnt[j] ++;
+                    }
 
-			    if(lsent < lrecv+2*inflight && sent < niter && sreqs[j].test()) {
-				sent++;
-				lsent++;
-				sdbg+=num_threads;
-				dbg+=num_threads;
-				sreqs[j] = comm.send(smsgs[j], peer_rank, thread_id*inflight + j);
-			    }
-			}
-		}
+                    if (lsent < lrecv + 2 * inflight && sent < niter &&
+                        sreqs[j].test())
+                    {
+                        sent++;
+                        lsent++;
+                        sdbg += num_threads;
+                        dbg += num_threads;
+                        sreqs[j] = comm.send(
+                            smsgs[j], peer_rank, thread_id * inflight + j);
+                        scnt[j] ++;
+                    }
+                }
+            }
 
 #ifdef USE_OPENMP
 #pragma omp single
 #endif
             barrier.rank_barrier(comm);
+
 #ifdef USE_OPENMP
 #pragma omp barrier
 #endif
 
-            if(thread_id == 0 && rank == 0){
+            if (thread_id == 0 && rank == 0)
+            {
                 const auto t = ttimer.toc();
+                double bw = ((double) niter * size * buff_size) / t;
+                // clang-format off
                 std::cout << "time:       " << t/1000000 << "s\n";
-                std::cout << "final MB/s: " << ((double)niter*size*buff_size)/t << "\n";
+                std::cout << "final MB/s: " << bw << "\n";
+                std::cout << "CSVData"
+                          << ", niter, " << niter
+                          << ", buff_size, " << buff_size
+                          << ", inflight, " << inflight
+                          << ", num_threads, " << num_threads
+                          << ", syncmode, " << syncmode
+                          << ", waitmode, " << waitmode
+                          << ", transport, " << ghex::tl::tag_to_string(transport{})
+                          << ", BW MB/s, " << bw
+                          << ", progress, " << LIBFABRIC_PROGRESS_STRING
+                          << ", endpoint, " << LIBFABRIC_ENDPOINT_STRING
+                          << "\n";
+                // clang-format on
+            }
+
+            MPI_Barrier(MPI_COMM_WORLD);
+
+            {
+                std::stringstream temp;
+                temp << std::endl;
+                temp << "#--------------- Initial send complete -" << std::endl;
+                temp << "rank " << rank << " thread id " << thread_id << " : send cnt ";
+                std::copy(scnt.begin(), scnt.end(), std::ostream_iterator<int>(temp, " "));
+                temp << std::endl;
+
+                temp << "rank " << rank << " thread id " << thread_id << " : recv cnt ";
+                std::copy(rcnt.begin(), rcnt.end(), std::ostream_iterator<int>(temp, " "));
+                temp << std::endl;
+                temp << "#=======================================" << std::endl;
+                buffered_out(temp.str());
             }
 
             // tail loops - submit RECV requests until
@@ -211,31 +303,71 @@ int main(int argc, char *argv[])
             // This is because UCX cannot cancel SEND requests.
             // https://github.com/openucx/ucx/issues/1162
             {
-                int incomplete_sends = 0;
-                int send_complete = 0;
 
+                static auto polling = tst_deb.make_timer(5, hpx::debug::str<>("incomplete_sends"));
+                tst_deb.timed(polling);
+
+                int send_complete = 0;
                 // complete all posted sends
-                do {
+                do
+                {
                     comm.progress();
                     // check if we have completed all our posted sends
-                    if(!send_complete){
-                        incomplete_sends = 0;
-                        for(int j=0; j<inflight; j++){
-                            if(!sreqs[j].test()) incomplete_sends++;
+                    if (!send_complete)
+                    {
+                        std::stringstream temp;
+                        int incomplete_sends = 0;
+                        for (int j = 0; j < inflight; j++)
+                        {
+                            if (!sreqs[j].test()) {
+                                temp << "rank " << rank << " thread id " << thread_id << " incomplete " << j << "\n";
+                                incomplete_sends++;
+                            }
                         }
-                        if(incomplete_sends == 0) {
+                        if (incomplete_sends == 0)
+                        {
                             // increase thread counter of threads that are done with the sends
+                            buffered_out("rank " << rank << "\tthread " << thread_id << " send_complete");
                             tail_send++;
                             send_complete = 1;
                         }
-                    }
-                    // continue to re-schedule all recvs to allow the peer to complete
-                    for(int j=0; j<inflight; j++){
-                        if(rreqs[j].test()) {
-                            rreqs[j] = comm.recv(rmsgs[j], peer_rank, thread_id*inflight + j);
+                        // threads with incomplete sends, output info
+                        else {
+                            temp << "rank " << rank << " thread id " << thread_id << " : send cnt ";
+                            std::copy(scnt.begin(), scnt.end(), std::ostream_iterator<int>(temp, " "));
+                            temp << std::endl;
+                            temp << "rank " << rank << " thread id " << thread_id << " : recv cnt ";
+                            std::copy(rcnt.begin(), rcnt.end(), std::ostream_iterator<int>(temp, " "));
+                            tst_deb.timed(polling, temp.str());
                         }
                     }
-                } while(tail_send!=num_threads);
+                    // continue to re-schedule all recvs to allow the peer to complete
+                    for (int j = 0; j < inflight; j++)
+                    {
+                        if (rreqs[j].test())
+                        {
+                            rreqs[j] = comm.recv(
+                                rmsgs[j], peer_rank, thread_id * inflight + j);
+                            rcnt[j] ++;
+                        }
+                    }
+                } while (tail_send != num_threads);
+
+                buffered_out("rank " << rank << "\tthread " << thread_id << "\tleft region");
+                {
+                    std::stringstream temp;
+                    temp << std::endl;
+                    temp << "#------------ Incomplete send_complete -" << std::endl;
+                    temp << "rank " << rank << " thread id " << thread_id << " : send cnt ";
+                    std::copy(scnt.begin(), scnt.end(), std::ostream_iterator<int>(temp, " "));
+                    temp << std::endl;
+
+                    temp << "rank " << rank << " thread id " << thread_id << " : recv cnt ";
+                    std::copy(rcnt.begin(), rcnt.end(), std::ostream_iterator<int>(temp, " "));
+                    temp << std::endl;
+                    temp << "#=======================================" << std::endl;
+                    buffered_out(temp.str());
+                }
 
                 // We have all completed the sends, but the peer might not have yet.
                 // Notify the peer and keep submitting recvs until we get his notification.
@@ -250,13 +382,19 @@ int main(int argc, char *argv[])
                     rf = comm.recv(rmsg, peer_rank, 0x80000);
                 }
 
-                while(tail_recv == 0){
+                buffered_out("rank " << rank << "\tthread " << thread_id << "\tstart tail_recv");
+                while (tail_recv == 0)
+                {
                     comm.progress();
 
                     // schedule all recvs to allow the peer to complete
-                    for(int j=0; j<inflight; j++){
-                        if(rreqs[j].test()) {
-                            rreqs[j] = comm.recv(rmsgs[j], peer_rank, thread_id*inflight + j);
+                    for (int j = 0; j < inflight; j++)
+                    {
+                        if (rreqs[j].test())
+                        {
+                            rreqs[j] = comm.recv(
+                                rmsgs[j], peer_rank, thread_id * inflight + j);
+                            rcnt[j]++;
                         }
                     }
 
@@ -264,14 +402,35 @@ int main(int argc, char *argv[])
 #pragma omp master
 #endif
                     {
-                        if(rf.test()) tail_recv = 1;
+                        if (rf.test())
+                            tail_recv = 1;
                     }
                 }
+                buffered_out("rank " << rank << "\tthread " << thread_id << "\tfinalized");
             }
             // peer has sent everything, so we can cancel all posted recv requests
-            for(int j=0; j<inflight; j++){
+            for (int j = 0; j < inflight; j++)
+            {
                 rreqs[j].cancel();
             }
+
+            MPI_Barrier(MPI_COMM_WORLD);
+
+            {
+                std::stringstream temp;
+                temp << std::endl;
+                temp << "#------------------------------- Final -" << std::endl;
+                temp << "rank " << rank << " thread id " << thread_id << " : send cnt ";
+                std::copy(scnt.begin(), scnt.end(), std::ostream_iterator<int>(temp, " "));
+                temp << std::endl;
+
+                temp << "rank " << rank << " thread id " << thread_id << " : recv cnt ";
+                std::copy(rcnt.begin(), rcnt.end(), std::ostream_iterator<int>(temp, " "));
+                temp << std::endl;
+                temp << "#=======================================" << std::endl;
+                buffered_out(temp.str());
+            }
+
         }
     }
     MPI_Barrier(MPI_COMM_WORLD);

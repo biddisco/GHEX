@@ -3,12 +3,15 @@
 #include <vector>
 #include <future>
 
-#ifndef GHEX_TEST_USE_UCX
-#include <ghex/transport_layer/mpi/context.hpp>
-#define TRANSPORT tl::mpi_tag
-#else
+#ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
-#define TRANSPORT tl::ucx_tag
+using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
+#else
+#include <ghex/transport_layer/mpi/context.hpp>
+using transport = gridtools::ghex::tl::mpi_tag;
 #endif
 #include <ghex/transport_layer/util/barrier.hpp>
 #include <ghex/bulk_communication_object.hpp>
@@ -22,7 +25,7 @@
 
 using namespace gridtools::ghex;
 using arr       = std::array<int,2>;
-using transport = TRANSPORT;
+//using transport = TRANSPORT;
 using factory   = tl::context_factory<transport>;
 using domain    = structured::regular::domain_descriptor<int,2>;
 using halo_gen  = structured::regular::halo_generator<int,2>;

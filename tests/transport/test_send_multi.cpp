@@ -16,6 +16,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -86,7 +89,8 @@ TEST(transport, send_multi) {
 
     rank = context.rank();
 
-    using allocator_type = std::allocator<unsigned char>;
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using allocator_type = comm_type::allocator_type<unsigned char>;
     using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
 
     if (rank == 0) {
@@ -128,7 +132,7 @@ TEST(transport, send_multi_cb) {
     rank = context.rank();
 
     using comm_type      = std::remove_reference_t<decltype(comm)>;
-    using allocator_type = std::allocator<unsigned char>;
+    using allocator_type = comm_type::allocator_type<unsigned char>;
     using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
     //using smsg_type      = gridtools::ghex::tl::message_buffer<allocator_type>;
     using cb_msg_type    = comm_type::message_type;
@@ -193,7 +197,7 @@ TEST(transport, send_multi_cb_move) {
     rank = context.rank();
 
     using comm_type      = std::remove_reference_t<decltype(comm)>;
-    using allocator_type = std::allocator<unsigned char>;
+    using allocator_type = typename comm_type::template allocator_type<unsigned char>;
     //using smsg_type      = gridtools::ghex::tl::message_buffer<allocator_type>;
     using smsg_type      = gridtools::ghex::tl::shared_message_buffer<allocator_type>;
     using cb_msg_type    = comm_type::message_type;

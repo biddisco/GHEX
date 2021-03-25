@@ -19,6 +19,9 @@
 #ifdef GHEX_TEST_USE_UCX
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport = gridtools::ghex::tl::ucx_tag;
+#elif GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
 #else
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport = gridtools::ghex::tl::mpi_tag;
@@ -99,7 +102,7 @@ auto test_unidirectional(Context& context) {
 #ifdef GHEX_TEST_COUNT_ITERATIONS
             c++;
 #endif
-         } while (!fut.ready());
+         } while (!fut.test());
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         std::cout << "\n***********\n";
@@ -136,7 +139,7 @@ auto test_bidirectional(Context& context) {
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         c++;
 #endif
-     } while (!rfut.ready());
+     } while (!rfut.test());
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
     std::cout << "\n***********\n";
@@ -151,8 +154,9 @@ template<typename MsgType, typename Context>
 auto test_unidirectional_cb(Context& context) {
     auto comm = context.get_communicator();
 
-    using comm_type       = std::remove_reference_t<decltype(comm)>;
-    using cb_msg_type     = typename comm_type::message_type;
+    using comm_type      = std::remove_reference_t<decltype(comm)>;
+    using cb_msg_type    = typename comm_type::message_type;
+    using tag_type       = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -166,7 +170,7 @@ auto test_unidirectional_cb(Context& context) {
         auto status = comm.progress();
         EXPECT_EQ(status.num(), 0);
     } else {
-        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, int /* tag */) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived](cb_msg_type, int /*src*/, tag_type /* tag */) { arrived = true; });
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         int c = 0;
@@ -195,6 +199,7 @@ auto test_bidirectional_cb(Context& context) {
 
     using comm_type       = std::remove_reference_t<decltype(comm)>;
     using cb_msg_type     = typename comm_type::message_type;
+    using tag_type        = typename comm_type::tag_type;
 
     MsgType smsg(SIZE);
     MsgType rmsg(SIZE);
@@ -204,11 +209,11 @@ auto test_bidirectional_cb(Context& context) {
 
     if ( rank == 0 ) {
         auto fut = comm.send(smsg, 1, 1);
-        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 1, 2, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     } else if (rank == 1) {
         auto fut = comm.send(smsg, 0, 2);
-        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, int) { arrived = true; });
+        comm.recv(rmsg, 0, 1, [ &arrived,&rmsg](cb_msg_type, int, tag_type) { arrived = true; });
         fut.wait();
     }
 

@@ -21,23 +21,39 @@
 
 namespace ghex = gridtools::ghex;
 
-
-#ifdef USE_UCP
+#if defined(USE_UCP)
 // UCX backend
 #include <ghex/transport_layer/ucx/context.hpp>
 using transport    = ghex::tl::ucx_tag;
+
+#elif defined(USE_LIBFABRIC)
+// libfabric backend
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport    = ghex::tl::libfabric_tag;
+
 #else
 // MPI backend
 #include <ghex/transport_layer/mpi/context.hpp>
 using transport    = ghex::tl::mpi_tag;
 #endif
 
+#ifndef LIBFABRIC_PROGRESS_STRING
+# define LIBFABRIC_PROGRESS_STRING "manual"
+#endif
+
+#ifndef LIBFABRIC_ENDPOINT_STRING
+# define LIBFABRIC_ENDPOINT_STRING "single"
+#endif
+const char *syncmode = "future";
+const char *waitmode = "wait";
+
 #include <ghex/transport_layer/message_buffer.hpp>
 using context_type = typename ghex::tl::context_factory<transport>::context_type;
 using communicator_type = typename context_type::communicator_type;
 using future_type = typename communicator_type::future<void>;
-
-using MsgType = gridtools::ghex::tl::message_buffer<>;
+using allocator_type = typename communicator_type::template allocator_type<unsigned char>;
+using MsgType = gridtools::ghex::tl::message_buffer<allocator_type>;
+using tag_type = typename communicator_type::tag_type;
 
 #ifdef USE_OPENMP
 #define THREADID omp_get_thread_num()
@@ -53,10 +69,10 @@ int main(int argc, char *argv[])
     gridtools::ghex::timer timer, ttimer;
 
     if(argc != 4)
-	{
-	    std::cerr << "Usage: bench [niter] [msg_size] [inflight]" << "\n";
-	    std::terminate();
-	}
+    {
+        std::cerr << "Usage: bench [niter] [msg_size] [inflight]" << "\n";
+        std::terminate();
+    }
     niter = atoi(argv[1]);
     buff_size = atoi(argv[2]);
     inflight = atoi(argv[3]);
@@ -102,21 +118,21 @@ int main(int argc, char *argv[])
 #endif
 
             if (thread_id==0 && rank==0)
-		{
-		    std::cout << "\n\nrunning test " << __FILE__ << " with communicator " << typeid(comm).name() << "\n\n";
-		};
+        {
+            std::cout << "\n\nrunning test " << __FILE__ << " with communicator " << typeid(comm).name() << "\n\n";
+        };
 
             std::vector<MsgType> smsgs(inflight);
             std::vector<MsgType> rmsgs(inflight);
             std::vector<future_type> sreqs(inflight);
             std::vector<future_type> rreqs(inflight);
             for(int j=0; j<inflight; j++)
-		{
-		    smsgs[j].resize(buff_size);
-		    rmsgs[j].resize(buff_size);
-		    make_zero(smsgs[j]);
-		    make_zero(rmsgs[j]);
-		}
+        {
+            smsgs[j].resize(buff_size);
+            rmsgs[j].resize(buff_size);
+            make_zero(smsgs[j]);
+            make_zero(rmsgs[j]);
+        }
 
 #ifdef USE_OPENMP
 #pragma omp single
@@ -126,12 +142,12 @@ int main(int argc, char *argv[])
 #pragma omp barrier
 #endif
             if(thread_id == 0)
-		{
-		    timer.tic();
-		    ttimer.tic();
-		    if(rank == 1)
-			std::cout << "number of threads: " << num_threads << ", multi-threaded: " << using_mt << "\n";
-		}
+        {
+            timer.tic();
+            ttimer.tic();
+            if(rank == 1)
+            std::cout << "number of threads: " << num_threads << ", multi-threaded: " << using_mt << "\n";
+        }
 
             int dbg = 0;
             int sent = 0, received = 0;
@@ -175,8 +191,23 @@ int main(int argc, char *argv[])
 #endif
             if(thread_id == 0 && rank == 0){
                 const auto t = ttimer.toc();
+                double bw = ((double)niter*size*buff_size)/t;
+                // clang-format off
                 std::cout << "time:       " << t/1000000 << "s\n";
-                std::cout << "final MB/s: " << ((double)niter*size*buff_size)/t << "\n";
+                std::cout << "final MB/s: " << bw << "\n";
+                std::cout << "CSVData"
+                          << ", niter, " << niter
+                          << ", buff_size, " << buff_size
+                          << ", inflight, " << inflight
+                          << ", num_threads, " << num_threads
+                          << ", syncmode, " << syncmode
+                          << ", waitmode, " << waitmode
+                          << ", transport, " << ghex::tl::tag_to_string(transport{})
+                          << ", BW MB/s, " << bw
+                          << ", progress, " << LIBFABRIC_PROGRESS_STRING
+                          << ", endpoint, " << LIBFABRIC_ENDPOINT_STRING
+                          << "\n";
+                // clang-format on
             }
         }
 

@@ -42,6 +42,8 @@ namespace gridtools {
                 using rvalue_func  =  typename std::enable_if<is_rvalue<Msg>::value, Ret>::type;
                 template<typename Msg, typename Ret = request_cb>
                 using lvalue_func  =  typename std::enable_if<!is_rvalue<Msg>::value, Ret>::type;
+                template<typename T>
+                using allocator_type  = typename Communicator::template allocator_type<T>;
 
             public: // ctors
                 template<typename...Args>
@@ -59,14 +61,14 @@ namespace gridtools {
                   * @return type erased message buffer */
                 template<typename Allocator>
                 static message_type make_message(std::size_t bytes, Allocator alloc) {
-                    return message_buffer<Allocator>(bytes, alloc);
+                    return message_type(message_buffer<Allocator>(bytes, alloc));
                 }
                 
                 /** @brief generate a message buffer with a fixed size from a default constructed allocator
                   * @tparam Allocator allocator type
                   * @param bytes size of buffer in bytes
                   * @return type erased message buffer */
-                template<typename Allocator = std::allocator<unsigned char>>
+                template<typename Allocator = allocator_type<unsigned char>>
                 static message_type make_message(std::size_t bytes) {
                     return make_message(bytes, Allocator{});
                 }
@@ -110,7 +112,7 @@ namespace gridtools {
                 /** @brief send a message and get notified with a callback when the communication has finished.
                   * The message must be kept alive by the caller until the communication is finished.
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an l-value reference to the message to be sent
                   * @param dst the destination rank
@@ -128,7 +130,7 @@ namespace gridtools {
                   * The ownership of the message is transferred to this communicator and it is safe to destroy the
                   * message at the caller's site. 
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an r-value reference to the message to be sent
                   * @param dst the destination rank
@@ -257,7 +259,7 @@ namespace gridtools {
                 /** @brief receive a message and get notified with a callback when the communication has finished.
                   * The message must be kept alive by the caller until the communication is finished.
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an l-value reference to the message to be sent
                   * @param src the source rank
@@ -275,7 +277,7 @@ namespace gridtools {
                   * The ownership of the message is transferred to this communicator and it is safe to destroy the
                   * message at the caller's site. 
                   * Note, that the communicator has to be progressed explicitely in order to guarantee completion.
-                  * @tparam Message a meassage type
+                  * @tparam Message a message type
                   * @tparam CallBack a callback type with the signature void(message_type, rank_type, tag_type)
                   * @param msg an r-value reference to the message to be sent
                   * @param src the source rank

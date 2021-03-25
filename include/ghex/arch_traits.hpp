@@ -17,6 +17,10 @@
 #include "./transport_layer/message_buffer.hpp"
 #include "./arch_list.hpp"
 
+#ifdef GHEX_TEST_USE_LIBFABRIC
+#include <ghex/transport_layer/libfabric/rma/detail/memory_region_allocator.hpp>
+#endif
+
 namespace gridtools {
     namespace ghex {
 
@@ -29,12 +33,20 @@ namespace gridtools {
             static constexpr const char* name = "CPU";
 
             using device_id_type          = int;
+#ifdef GHEX_TEST_USE_LIBFABRIC
+            template <typename T>
+            using libfabric_allocator_type = tl::libfabric::rma::memory_region_allocator<T>;
+            using basic_allocator_type     = libfabric_allocator_type<unsigned char>;
+            using pool_type                = tl::libfabric::rma::memory_pool<tl::libfabric::libfabric_region_provider, unsigned char>;
+            using pool_allocator_type      = basic_allocator_type;
+            using message_allocator_type   = basic_allocator_type;
+#else
             using basic_allocator_type    = std::allocator<unsigned char>;
             using pool_type               = allocator::pool<basic_allocator_type>;
             using pool_allocator_type     = typename pool_type::allocator_type;
-            
-            //using message_allocator_type  = allocator::aligned_allocator_adaptor<std::allocator<unsigned char>,64>;
             using message_allocator_type  = allocator::aligned_allocator_adaptor<pool_allocator_type,64>;
+#endif
+            
             using message_type            = tl::message_buffer<message_allocator_type>;
 
             static device_id_type default_id() { return 0; }
@@ -43,7 +55,11 @@ namespace gridtools {
             { 
                 static_assert(std::is_same<decltype(index),device_id_type>::value, "trick to prevent warnings");
                 //return {};
+#ifdef GHEX_TEST_USE_LIBFABRIC
+                return { message_allocator_type{basic_allocator_type()} };
+#else
                 return { message_allocator_type{pool.get_allocator()} };
+#endif
             }
         };
 

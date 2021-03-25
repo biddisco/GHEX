@@ -20,8 +20,11 @@ namespace gridtools {
             /** @brief mpi transport tag */
             struct mpi_tag {};
             struct ucx_tag {};
+            struct libfabric_tag {};
 
-
+            const char *tag_to_string(const mpi_tag &) { return "mpi"; }
+            const char *tag_to_string(const ucx_tag &) { return "ucx"; }
+            const char *tag_to_string(const libfabric_tag &) { return "libfabric"; }
         } // namespace tl
 
     } // namespace ghex

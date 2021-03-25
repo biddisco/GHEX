@@ -37,7 +37,7 @@ namespace gridtools {
               * size indicates the amnount bytes used in the message.
               *
               * @tparam Allocator The allocator used to allocate the memory for the message */
-            template<typename Allocator = std::allocator<unsigned char>>
+            template<typename Allocator /*= std::allocator<unsigned char>*/>
             class message_buffer
             {
             public: // member types
@@ -123,6 +123,10 @@ namespace gridtools {
                 /** @brief returns a raw pointer to the beginning of the allocated memory, akin to std::vector */
                 raw_const_pointer data() const noexcept { return ::gridtools::ghex::to_address(m_buffer.m_pointer); }
                 raw_pointer data() noexcept { return ::gridtools::ghex::to_address(m_buffer.m_pointer); }
+
+                // provide const access to the underlying buffer which allows
+                // rma aware transports to access memory registration info when available
+                buffer_type const & get_buffer() const { return m_buffer; }
 
                 /** @brief returns a raw pointer to the beginning of the allocated memory, interpreted as T*. */
                 template <typename T>

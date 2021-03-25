@@ -45,6 +45,8 @@ namespace gridtools {
                     using request_cb_type = request_cb;
                     using message_type    = typename request_cb_type::message_type;
                     using progress_status = typename state_type::progress_status;
+                    template<typename T>
+                    using allocator_type  = std::allocator<T>;
 
                   private: // members
                     shared_state_type* m_shared_state;
@@ -70,7 +72,7 @@ namespace gridtools {
 
                     /** @brief send a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param dst the destination rank
                      * @param tag the communication tag
@@ -87,7 +89,7 @@ namespace gridtools {
 
                     /** @brief receive a message. The message must be kept alive by the caller until the communication is
                      * finished.
-                     * @tparam Message a meassage type
+                     * @tparam Message a message type
                      * @param msg an l-value reference to the message to be sent
                      * @param src the source rank
                      * @param tag the communication tag
@@ -122,7 +124,7 @@ namespace gridtools {
                     request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
                     {
                         auto fut = send(msg, dst, tag);
-                        if (fut.ready())
+                        if (fut.test())
                         {
                             callback(std::move(msg), dst, tag);
                             ++(m_state->m_progressed_sends);
@@ -150,7 +152,7 @@ namespace gridtools {
                     request_cb_type recv(message_type&& msg, rank_type src, tag_type tag, CallBack&& callback)
                     {
                         auto fut = recv(msg, src, tag);
-                        if (fut.ready())
+                        if (fut.test())
                         {
                             callback(std::move(msg), src, tag);
                             ++(m_state->m_progressed_recvs);

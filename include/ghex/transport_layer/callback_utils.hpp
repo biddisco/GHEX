@@ -1,12 +1,12 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
 #ifndef INCLUDED_GHEX_TL_CALLBACK_UTILS_HPP
 #define INCLUDED_GHEX_TL_CALLBACK_UTILS_HPP
@@ -70,7 +70,7 @@ namespace gridtools {
                     std::size_t size() const noexcept { return m_size; }
                 };
 
-                /** @brief type erased message capable of holding any message. Uses optimized initialization for  
+                /** @brief type erased message capable of holding any message. Uses optimized initialization for
                   * ref_messages and std::shared_ptr pointing to messages. */
                 struct any_message
                 {
@@ -205,7 +205,7 @@ namespace gridtools {
                         int completed = 0;
                         for (unsigned int i = 0; i < m_queue.size(); ++i) {
                             auto& element = m_queue[i];
-                            if (element.m_future.ready()) {
+                            if (element.m_future.test()) {
                                 element.m_cb(std::move(element.m_msg), element.m_rank, element.m_tag);
                                 ++completed;
                                 element.m_request.m_request_state->m_ready = true;
@@ -245,7 +245,7 @@ namespace gridtools {
                     int m_num_sends = 0;
                     int m_num_recvs = 0;
                     int m_num_cancels = 0;
- 
+
                     int num() const noexcept { return m_num_sends+m_num_recvs+m_num_cancels; }
                     int num_sends() const noexcept { return m_num_sends; }
                     int num_recvs() const noexcept { return m_num_recvs; }

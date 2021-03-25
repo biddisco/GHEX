@@ -58,6 +58,30 @@ if (GHEX_USE_UCP)
     endforeach()
 endif()
 
+if (GHEX_USE_LIBFABRIC)
+    set(_variants_libfabric serial serial_split threads async_async async_deferred)
+
+    foreach(_var ${_variants_libfabric})
+        string(TOUPPER ${_var} define)
+        set(_t communication_object_2_${_var}_libfabric)
+        add_executable(${_t} communication_object_2.cpp )
+        target_compile_definitions(${_t} PUBLIC GHEX_TEST_${define} GHEX_TEST_USE_LIBFABRIC)
+        target_link_libraries(${_t} gtest_main_libfabric)
+        add_test(
+            NAME ${_t}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}> ${MPIEXEC_POSTFLAGS}
+        )
+
+        set(_t communication_object_2_${_var}_vector_libfabric)
+        add_executable(${_t} communication_object_2.cpp )
+        target_compile_definitions(${_t} PUBLIC GHEX_TEST_${define}_VECTOR GHEX_TEST_USE_LIBFABRIC)
+        target_link_libraries(${_t} gtest_main_libfabric)
+        add_test(
+            NAME ${_t}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 8 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_t}> ${MPIEXEC_POSTFLAGS}
+        )
+    endforeach()
+endif()
 
 set(_variants serial serial_split threads async_async async_deferred)
 foreach(_var ${_variants})
@@ -167,6 +191,18 @@ foreach (_t ${_tests_rma})
                 COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${t}> ${MPIEXEC_POSTFLAGS}
             )
         endif()
+    endif()
+
+    if (GHEX_USE_LIBFABRIC)
+
+        set(t ${_t}_libfabric)
+        add_executable(${t} ${_t}.cpp)
+        target_link_libraries(${t} gtest_main_libfabric)
+        target_compile_definitions(${t} PUBLIC GHEX_TEST_USE_LIBFABRIC)
+        add_test(
+            NAME ${t}
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 4 ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${t}> ${MPIEXEC_POSTFLAGS}
+        )
     endif()
 
     if (GHEX_USE_UCP)

@@ -1,0 +1,12 @@
+#
+# Cray settings to enable outout when debugging libfabric problems
+#
+export UGNI_DEBUG=10
+export FI_LOG_LEVEL=debug
+export FI_LOG_PROV=gni
+
+#
+# Laptop - run mpi ranks in separate consoles, attach gdb and run immediately
+#
+mpiexec -n 2 --oversubscribe konsole -e gdb -ex run --args /home/biddisco/build/ghex/tests/transport/test_send_recv_libfabric
+

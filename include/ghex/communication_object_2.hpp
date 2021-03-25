@@ -1,12 +1,12 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
 #ifndef INCLUDED_GHEX_COMMUNICATION_OBJECT_2_HPP
 #define INCLUDED_GHEX_COMMUNICATION_OBJECT_2_HPP
@@ -21,11 +21,21 @@
 #include <map>
 #include <stdio.h>
 #include <functional>
+#include <chrono>
+
+#define WAIT_FOR_DEBUGGER()                                     \
+{                                                               \
+    std::cout << "Please attach debugger " << std::endl;        \
+    using namespace std::chrono;                                \
+    for (auto start = steady_clock::now(),                      \
+                now = start; now < start + seconds{1};         \
+                now = steady_clock::now()) {}                   \
+}
 
 namespace gridtools {
 
     namespace ghex {
-        
+
         // forward declaration for optimization on regular grids
         namespace structured {
             namespace regular {
@@ -75,7 +85,7 @@ namespace gridtools {
         public: // public constructor
             /** @brief construct a ready handle
               * @param comm communicator */
-            communication_handle(const communicator_type& comm) 
+            communication_handle(const communicator_type& comm)
             : m_comm{comm} {}
 
         private: // private constructor
@@ -84,7 +94,7 @@ namespace gridtools {
               * @param comm communicator
               * @param wait_fct wait function */
             template<typename Func>
-            communication_handle(const communicator_type& comm, Func&& wait_fct) 
+            communication_handle(const communicator_type& comm, Func&& wait_fct)
             : m_comm{comm}, m_wait_fct(std::forward<Func>(wait_fct)) {}
 
         public: // copy and move ctors
@@ -99,8 +109,8 @@ namespace gridtools {
             void progress() { m_comm.progress(); }
         };
 
-     
-        /** @brief communication object responsible for exchanging halo data. Allocates storage depending on the 
+
+        /** @brief communication object responsible for exchanging halo data. Allocates storage depending on the
          * device type and device id of involved fields.
          * @tparam Transport message transport type
          * @tparam GridType grid tag type
@@ -141,13 +151,13 @@ namespace gridtools {
                 domain_id_type second_id;
                 bool operator<(const domain_id_pair& other) const noexcept
                 {
-                    return (first_id < other.first_id ? true : 
+                    return (first_id < other.first_id ? true :
                             (first_id > other.first_id ? false : (second_id < other.second_id)));
                 }
             };
 
-            /** @brief Holds a pointer to a set of iteration spaces and a callback function pointer 
-              * which is used to store a field's pack or unpack member function. 
+            /** @brief Holds a pointer to a set of iteration spaces and a callback function pointer
+              * which is used to store a field's pack or unpack member function.
               * This class also stores the offset in the serialized buffer in bytes.
               * The type-erased field_ptr member is only used for the gpu-vector-interface.
               * @tparam Function Either pack or unpack function pointer type */
@@ -184,9 +194,9 @@ namespace gridtools {
                 using arch_type        = Arch;
                 using device_id_type   = typename arch_traits<Arch>::device_id_type;
                 using vector_type      = typename arch_traits<Arch>::message_type;
-                
-                using send_buffer_type = buffer<vector_type,pack_function_type>; 
-                using recv_buffer_type = buffer<vector_type,unpack_function_type>; 
+
+                using send_buffer_type = buffer<vector_type,pack_function_type>;
+                using recv_buffer_type = buffer<vector_type,unpack_function_type>;
                 using send_memory_type = std::map<device_id_type, std::map<domain_id_pair,send_buffer_type>>;
                 using recv_memory_type = std::map<device_id_type, std::map<domain_id_pair,recv_buffer_type>>;
 
@@ -201,7 +211,7 @@ namespace gridtools {
                 std::vector<hook_future_type> m_recv_futures;
 #endif
             };
-            
+
             /** tuple type of buffer_memory (one element for each device in arch_list) */
             using memory_type = detail::transform<arch_list>::with<buffer_memory>;
 
@@ -247,7 +257,7 @@ namespace gridtools {
                 handle_type h(m_comm, [this](){this->wait();});
                 post_recvs();
                 pack();
-                return h; 
+                return h;
             }
 
             /** @brief  non-blocking exchange of halo data
@@ -260,7 +270,7 @@ namespace gridtools {
             exchange(Iterator first, Iterator last)
             {
                 // call special function for a single range
-                return exchange_u(first, last); 
+                return exchange_u(first, last);
             }
 
             /** @brief  non-blocking exchange of halo data
@@ -280,7 +290,7 @@ namespace gridtools {
                 static_assert(sizeof...(Iterators) % 2 == 0, "need even number of iteratiors: (begin,end) pairs");
                 // call helper function to turn iterators into pairs of iterators
                 return exchange_make_pairs(std::make_index_sequence<2+sizeof...(iters)/2>(),
-                    first0, last0, first1, last1, iters...); 
+                    first0, last0, first1, last1, iters...);
             }
 
         private: // implementation
@@ -294,7 +304,7 @@ namespace gridtools {
                 pack();
                 return handle_type(m_comm, [this](){this->wait();});
             }
-            
+
             // helper function to turn iterators into pairs of iterators
             template<std::size_t... Is, typename... Iterators>
             [[nodiscard]]
@@ -304,7 +314,7 @@ namespace gridtools {
                 // call exchange with pairs of iterators
                 return exchange(std::make_pair(std::get<2*Is>(iter_t), std::get<2*Is+1>(iter_t))...);
             }
-            
+
             // special function to handle one iterator pair (optimization for gpus below)
             template<typename Iterator>
 #ifdef GHEX_COMM_OBJ_USE_U
@@ -317,7 +327,7 @@ namespace gridtools {
             exchange_u(Iterator first, Iterator last)
             {
                 // call exchange with a pair of iterators
-                return exchange(std::make_pair(first, last)); 
+                return exchange(std::make_pair(first, last));
             }
 
 #ifdef GHEX_COMM_OBJ_USE_U
@@ -347,7 +357,7 @@ namespace gridtools {
                             auto ptr = &p1.second;
                             m_recv_reqs.push_back(
                                 m_comm.recv(p1.second.buffer, p1.second.address, p1.second.tag,
-                                [ptr](typename communicator_type::message_type m, 
+                                [ptr](typename communicator_type::message_type m,
                                    typename communicator_type::rank_type,
                                    typename communicator_type::tag_type)
                                 {
@@ -383,7 +393,7 @@ namespace gridtools {
             }
 #endif
 #endif
-            
+
             // helper function to set up communicaton buffers (run-time case)
             template<typename... Iterators>
             void exchange_impl(std::pair<Iterators,Iterators>... iter_pairs)
@@ -429,7 +439,7 @@ namespace gridtools {
                 using test_t = pattern_container<communicator_type,grid_type,domain_id_type>;
                 static_assert(detail::test_eq_t<test_t, typename buffer_info_type<Archs,Fields>::pattern_container_type...>::value,
                         "patterns are not compatible with this communication object");
-                if (m_valid) 
+                if (m_valid)
                     throw std::runtime_error("earlier exchange operation was not finished");
                 m_valid = true;
 
@@ -453,7 +463,7 @@ namespace gridtools {
                 memory_t memory_tuple{&(std::get<buffer_memory<Archs>>(m_mem))...};
                 // loop over buffer_infos/memory and compute required space
                 int i = 0;
-                detail::for_each(memory_tuple, buffer_info_tuple, [this,&i,&tag_offsets](auto mem, auto bi) 
+                detail::for_each(memory_tuple, buffer_info_tuple, [this,&i,&tag_offsets](auto mem, auto bi)
                 {
                     using arch_type = typename std::remove_reference_t<decltype(*mem)>::arch_type;
                     using value_type  = typename std::remove_reference_t<decltype(*bi)>::value_type;
@@ -481,7 +491,7 @@ namespace gridtools {
                                 // use callbacks for unpacking
                                 m_recv_reqs.push_back(
                                     m_comm.recv(p1.second.buffer, p1.second.address, p1.second.tag,
-                                    [ptr](typename communicator_type::message_type m, 
+                                    [ptr](typename communicator_type::message_type m,
                                        typename communicator_type::rank_type,
                                        typename communicator_type::tag_type)
                                     {
@@ -607,40 +617,44 @@ namespace gridtools {
                 auto& pool = mem->m_pools[device_id];
                 if (!pool)
                 {
+#ifdef GHEX_TEST_USE_LIBFABRIC
+                    auto temp = m_comm.get_memory_pool();
+#else
                     pool.reset( new typename arch_traits<Arch>::pool_type{ typename arch_traits<Arch>::basic_allocator_type{} } );
+#endif
                 }
-                allocate<Arch,T,typename buffer_memory<Arch>::recv_buffer_type>( 
-                    mem->recv_memory[device_id], 
+                allocate<Arch,T,typename buffer_memory<Arch>::recv_buffer_type>(
+                    mem->recv_memory[device_id],
                     pattern.recv_halos(),
-                    [field_ptr](const void* buffer, const index_container_type& c, void* arg) 
+                    [field_ptr](const void* buffer, const index_container_type& c, void* arg)
                     {
-                        field_ptr->unpack(reinterpret_cast<const T*>(buffer),c,arg); 
+                        field_ptr->unpack(reinterpret_cast<const T*>(buffer),c,arg);
                     },
-                    dom_id, 
-                    device_id, 
-                    tag_offset, 
-                    true, 
+                    dom_id,
+                    device_id,
+                    tag_offset,
+                    true,
                     *pool,
                     field_ptr);
                 allocate<Arch,T,typename buffer_memory<Arch>::send_buffer_type>(
-                    mem->send_memory[device_id], 
+                    mem->send_memory[device_id],
                     pattern.send_halos(),
-                    [field_ptr](void* buffer, const index_container_type& c, void* arg) 
+                    [field_ptr](void* buffer, const index_container_type& c, void* arg)
                     {
                         field_ptr->pack(reinterpret_cast<T*>(buffer),c,arg);
                     },
-                    dom_id, 
-                    device_id, 
-                    tag_offset, 
-                    false, 
-                    *pool, 
+                    dom_id,
+                    device_id,
+                    tag_offset,
+                    false,
+                    *pool,
                     field_ptr);
             }
 
             // compute memory requirements to be allocated on the device
-            template<typename Arch, typename ValueType, typename BufferType, typename Memory, typename Halos, typename Function, typename DeviceIdType, 
+            template<typename Arch, typename ValueType, typename BufferType, typename Memory, typename Halos, typename Function, typename DeviceIdType,
                 typename Pool, typename Field = void>
-            void allocate(Memory& memory, const Halos& halos, Function&& func, domain_id_type my_dom_id, DeviceIdType device_id, 
+            void allocate(Memory& memory, const Halos& halos, Function&& func, domain_id_type my_dom_id, DeviceIdType device_id,
                           int tag_offset, bool receive, Pool& pool, Field* field_ptr = nullptr)
             {
                 for (const auto& p_id_c : halos)
@@ -651,7 +665,7 @@ namespace gridtools {
                     const auto remote_address = p_id_c.first.address;
                     const auto remote_dom_id  = p_id_c.first.id;
                     domain_id_type left, right;
-                    if (receive) 
+                    if (receive)
                     {
                         left  = my_dom_id;
                         right = remote_dom_id;
@@ -704,7 +718,7 @@ namespace gridtools {
         }
 
     } // namespace ghex
-        
+
 } // namespace gridtools
 
 #endif /* INCLUDED_GHEX_COMMUNICATION_OBJECT_2_HPP */

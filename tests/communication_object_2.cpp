@@ -14,10 +14,17 @@
 #include <ghex/structured/regular/halo_generator.hpp>
 #include <ghex/structured/regular/field_descriptor.hpp>
 #include <ghex/communication_object_2.hpp>
-#ifndef GHEX_TEST_USE_UCX
-#include <ghex/transport_layer/mpi/context.hpp>
-#else
+#include <ghex/transport_layer/util/barrier.hpp>
+
+#if defined(GHEX_TEST_USE_UCX)
 #include <ghex/transport_layer/ucx/context.hpp>
+using transport = gridtools::ghex::tl::ucx_tag;
+#elif defined(GHEX_TEST_USE_LIBFABRIC)
+#include <ghex/transport_layer/libfabric/context.hpp>
+using transport = gridtools::ghex::tl::libfabric_tag;
+#else
+#include <ghex/transport_layer/mpi/context.hpp>
+using transport = gridtools::ghex::tl::mpi_tag;
 #endif
 #include <array>
 #include <iomanip>
@@ -41,11 +48,6 @@ __global__ void print_kernel() {
 }
 #endif
 
-#ifndef GHEX_TEST_USE_UCX
-using transport = gridtools::ghex::tl::mpi_tag;
-#else
-using transport = gridtools::ghex::tl::ucx_tag;
-#endif
 using context_type = gridtools::ghex::tl::context<transport>;
 
 template<typename T, std::size_t N>
@@ -155,6 +157,8 @@ bool test_values(const Domain& d, const Halos& halos, const Periodic& periodic, 
 
 TEST(communication_object_2, exchange)
 {
+
+//    WAIT_FOR_DEBUGGER();
 
     auto context_ptr = gridtools::ghex::tl::context_factory<transport>::create(MPI_COMM_WORLD);
 
@@ -268,7 +272,9 @@ TEST(communication_object_2, exchange)
 
     // make patterns
     auto pattern1 = gridtools::ghex::make_pattern<gridtools::ghex::structured::grid>(context, halo_gen1, local_domains);
+    gridtools::ghex::tl::barrier_t barrier1;
     auto pattern2 = gridtools::ghex::make_pattern<gridtools::ghex::structured::grid>(context, halo_gen2, local_domains);
+    gridtools::ghex::tl::barrier_t barrier2;
 
     using pattern_type = decltype(pattern1);
 
@@ -744,6 +750,11 @@ TEST(communication_object_2, exchange)
     std::vector<bi3_t> xx3{
         pattern1(field_3a),
         pattern1(field_3b)};
+
+//    co.bexchange(
+//            pattern1(field_1a),
+//            pattern1(field_1b));
+
     co.exchange(xx1.begin(), xx1.end(), xx2.begin(), xx2.end(), xx3.begin(),xx3.end()).wait();
     /*co.bexchange(
         pattern1(field_1a),
