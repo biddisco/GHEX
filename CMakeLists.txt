@@ -18,7 +18,7 @@ enable_testing()
 set(USE_GPU "OFF" CACHE BOOL "use cuda")
 set(USE_HYBRID_TESTS "ON" CACHE BOOL "run gpu+cpu tests")
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_FLAGS "-Wall -Wextra -Wpedantic -Wno-unknown-pragmas")
 
