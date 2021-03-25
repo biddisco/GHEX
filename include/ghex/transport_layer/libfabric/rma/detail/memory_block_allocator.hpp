@@ -1,13 +1,16 @@
-//  Copyright (c) 2014-2017 John Biddiscombe
-//
-//  Distributed under the Boost Software License, Version 1.0. (See accompanying
-//  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
 #pragma once
 
 #include "ghex_libfabric_defines.hpp"
-//
-#include <ghex/transport_layer/libfabric/rma/atomic_count.hpp>
 //
 #include <ghex/transport_layer/libfabric/rma/detail/memory_region_impl.hpp>
 #include <ghex/transport_layer/libfabric/performance_counter.hpp>

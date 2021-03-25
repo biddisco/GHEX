@@ -8,8 +8,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  */
-#ifndef INCLUDED_GHEX_TL_LIBFABRIC_REQUEST_HPP
-#define INCLUDED_GHEX_TL_LIBFABRIC_REQUEST_HPP
+#pragma once
 
 #include <functional>
 #include <ghex/transport_layer/context.hpp>
@@ -116,19 +115,20 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
                     return true;
                 }
                 if (!is_ready()) {
-                    if (m_lf_ctxt->is_send_) {
-                        m_controller->poll_send_queue(m_lf_ctxt->endpoint_->get_tx_cq());
-                    }
-                    else {
-                        m_controller->poll_recv_queue(m_lf_ctxt->endpoint_->get_rx_cq());
-                    }
+                    m_controller->poll_for_work_completions();
+//                    if (m_lf_ctxt->is_send_) {
+//                        m_controller->poll_send_queue(m_lf_ctxt->endpoint_->get_tx_cq());
+//                    }
+//                    else {
+//                        m_controller->poll_recv_queue(m_lf_ctxt->endpoint_->get_rx_cq());
+//                    }
                 }
                 return is_ready();
             }
 
             inline bool ready()
             {
-                //return m_lf_ctxt->ready();
+//                return m_lf_ctxt->ready();
                 return test();
             }
 
@@ -139,7 +139,7 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
 
             bool cancel()
             {
-                // we can  only cancel recv requests...
+                // we can only cancel recv requests...
                 if  (m_kind == libfabric::request_kind::recv && (m_lf_ctxt!=nullptr)) {
                     return m_lf_ctxt->cancel();
                 }
@@ -148,5 +148,3 @@ namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
         };
 
 }}}}
-
-#endif /* INCLUDED_GHEX_TL_LIBFABRIC_REQUEST_HPP */

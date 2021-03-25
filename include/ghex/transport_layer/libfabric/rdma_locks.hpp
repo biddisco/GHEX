@@ -1,9 +1,13 @@
-// Copyright (C) 2016 John Biddiscombe
-//
-//  SPDX-License-Identifier: BSL-1.0
-// Distributed under the Boost Software License, Version 1.0. (See
-// accompanying file LICENSE_1_0.txt or copy at
-
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
 #pragma once
 
 #define HPX_PARCELPORT_LIBFABRIC_DEBUG_LOCKS

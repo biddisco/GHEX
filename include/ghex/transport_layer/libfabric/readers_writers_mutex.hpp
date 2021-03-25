@@ -1,5 +1,14 @@
-#ifndef HPX_READERS_WRITERS_MUTEX_HPP
-#define HPX_READERS_WRITERS_MUTEX_HPP
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include <chrono>
 #include <thread>
@@ -312,5 +321,3 @@ namespace local {
 }
 
 #pragma GCC pop_options
-
-#endif

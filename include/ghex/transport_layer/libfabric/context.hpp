@@ -8,8 +8,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  */
-#ifndef INCLUDED_GHEX_TL_LIBFABRIC_CONTEXT_HPP
-#define INCLUDED_GHEX_TL_LIBFABRIC_CONTEXT_HPP
+#pragma once
 
 #include "ghex/transport_layer/communicator.hpp"
 #include "ghex/transport_layer/libfabric/communicator.hpp"
@@ -27,7 +26,7 @@ namespace gridtools {
             // --------------------------------------------------
             // create a singleton ptr to a libfabric controller that
             // can be shared between ghex context objects
-            static std::shared_ptr<controller_type> init_libfabric_controller(MPI_Comm comm, int rank, int size)
+            static std::shared_ptr<controller_type> init_libfabric_controller(MPI_Comm comm, int rank, int size, int threads)
             {
                 // static std::atomic_flag initialized = ATOMIC_FLAG_INIT;
                 // if (initialized.test_and_set()) return;
@@ -41,7 +40,7 @@ namespace gridtools {
                     instance.reset(new controller_type(
                             GHEX_LIBFABRIC_PROVIDER,
                             GHEX_LIBFABRIC_DOMAIN,
-                            comm, rank, size
+                            comm, rank, size, threads
                         ));
                 }
                 return instance;
@@ -64,9 +63,9 @@ namespace gridtools {
                 std::mutex                m_mutex;
 
                 // --------------------------------------------------
-                transport_context(const mpi::rank_topology& t)
+                transport_context(const mpi::rank_topology& t, int threads)
                     : m_controller{nullptr}
-                  , m_states()
+                    , m_states()
                     , m_shared_state{t}
                     , m_state{nullptr}
                     , m_mutex()
@@ -74,7 +73,7 @@ namespace gridtools {
                     int rank, size;
                     GHEX_CHECK_MPI_RESULT(MPI_Comm_rank(t.mpi_comm(), &rank));
                     GHEX_CHECK_MPI_RESULT(MPI_Comm_size(t.mpi_comm(), &size));
-                    m_controller = init_libfabric_controller(t.mpi_comm(), rank, size);
+                    m_controller = init_libfabric_controller(t.mpi_comm(), rank, size, threads);
                     //
                     m_shared_state.init(m_controller.get());
                     m_state.init(m_controller.get());
@@ -88,7 +87,7 @@ namespace gridtools {
                 communicator_type get_communicator()
                 {
                     // we need to guard only the insertion in the vector,
-                                                               // but this is not a performance critical section
+                    // but this is not a performance critical section
                     std::lock_guard<std::mutex> lock(m_mutex);
                     //
                     m_states.push_back(std::make_unique<state_type>(m_controller->get_tx_endpoint()));
@@ -110,13 +109,19 @@ namespace gridtools {
             static std::unique_ptr<context_type> create(MPI_Comm mpi_comm)
             {
                 auto new_comm = detail::clone_mpi_comm(mpi_comm);
+                int threads = 1;
+#ifdef USE_OPENMP
+#pragma omp parallel
+    {
+#pragma omp master
+        threads = omp_get_num_threads();
+    }
+#endif
                 return std::unique_ptr<context_type>{
-                    new context_type{new_comm}};
+                    new context_type(new_comm, threads)};
             }
         };
 
         } // namespace tl
     } // namespace ghex
 } // namespace gridtools
-
-#endif /* INCLUDED_GHEX_TL_LIBFABRIC_CONTEXT_HPP */

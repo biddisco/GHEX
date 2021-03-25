@@ -1,12 +1,12 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
 #ifndef INCLUDED_GHEX_TL_MPI_FUTURE_HPP
 #define INCLUDED_GHEX_TL_MPI_FUTURE_HPP
@@ -28,7 +28,7 @@ namespace gridtools{
                     value_type m_data;
                     handle_type m_handle;
 
-                    future_t(value_type&& data, handle_type&& h) 
+                    future_t(value_type&& data, handle_type&& h)
                     :   m_data(std::move(data))
                     ,   m_handle(std::move(h))
                     {}
@@ -54,10 +54,10 @@ namespace gridtools{
 
                     [[nodiscard]] value_type get()
                     {
-                        wait(); 
-                        return std::move(m_data); 
+                        wait();
+                        return std::move(m_data);
                     }
-                    
+
                     bool is_recv() const noexcept { return (m_handle.m_kind == request_kind::recv); }
 
                     /** Cancel the future.
@@ -85,8 +85,8 @@ namespace gridtools{
 
                     handle_type m_handle;
 
-                    future_t() noexcept = default; 
-                    future_t(handle_type&& h) 
+                    future_t() noexcept = default;
+                    future_t(handle_type&& h)
                     :   m_handle(std::move(h))
                     {}
                     future_t(const future_t&) = delete;
@@ -111,7 +111,7 @@ namespace gridtools{
 
                     void get()
                     {
-                        wait(); 
+                        wait();
                     }
 
                     bool is_recv() const noexcept { return (m_handle.m_kind == request_kind::recv); }

@@ -1,13 +1,14 @@
-////////////////////////////////////////////////////////////////////////////////
-//  Copyright (c) 2016 John Biddiscombe
-//
-//  SPDX-License-Identifier: BSL-1.0
-//  Distributed under the Boost Software License, Version 1.0. (See accompanying
-//  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-////////////////////////////////////////////////////////////////////////////////
-
-#if !defined(GHEX_CONCURRENT_UNORDERED_MAP)
-#define GHEX_CONCURRENT_UNORDERED_MAP
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include <ghex/transport_layer/libfabric/rdma_locks.hpp>
 #include <ghex/transport_layer/libfabric/readers_writers_mutex.hpp>
@@ -374,4 +375,3 @@ namespace concurrent {
     };
 
 }}
-#endif

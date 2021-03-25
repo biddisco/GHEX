@@ -1,15 +1,14 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
-#ifndef INCLUDED_GHEX_TL_LIBFABRIC_FUTURE_HPP
-#define INCLUDED_GHEX_TL_LIBFABRIC_FUTURE_HPP
+#pragma once
 
 #include <ghex/transport_layer/libfabric/request.hpp>
 
@@ -113,6 +112,3 @@ namespace gridtools{
         } // namespace tl
     } // namespace ghex
 } // namespace gridtools
-
-#endif /* INCLUDED_GHEX_TL_LIBFABRIC_FUTURE_HPP */
-

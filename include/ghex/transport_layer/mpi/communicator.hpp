@@ -124,7 +124,7 @@ namespace gridtools {
                     request_cb_type send(message_type&& msg, rank_type dst, tag_type tag, CallBack&& callback)
                     {
                         auto fut = send(msg, dst, tag);
-                        if (fut.ready())
+                        if (fut.test())
                         {
                             callback(std::move(msg), dst, tag);
                             ++(m_state->m_progressed_sends);
@@ -152,7 +152,7 @@ namespace gridtools {
                     request_cb_type recv(message_type&& msg, rank_type src, tag_type tag, CallBack&& callback)
                     {
                         auto fut = recv(msg, src, tag);
-                        if (fut.ready())
+                        if (fut.test())
                         {
                             callback(std::move(msg), src, tag);
                             ++(m_state->m_progressed_recvs);

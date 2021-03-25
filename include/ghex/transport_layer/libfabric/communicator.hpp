@@ -8,8 +8,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  */
-#ifndef INCLUDED_GHEX_TL_LIBFABRIC_COMMUNICATOR_HPP
-#define INCLUDED_GHEX_TL_LIBFABRIC_COMMUNICATOR_HPP
+#pragma once
 
 #include <atomic>
 //
@@ -232,6 +231,16 @@ namespace gridtools {
                     inline rank_type local_rank() const noexcept { return m_shared_state->m_rank_topology.local_rank(); }
                     inline auto mpi_comm() const noexcept { return m_shared_state->m_rank_topology.mpi_comm(); }
 
+                    std::tuple<int,int,int,int, int, int> get_send_recv_counters() {
+                        return std::make_tuple(
+                                    int(m_shared_state->m_controller->sends_posted_),
+                                    int(m_shared_state->m_controller->sends_complete),
+                                    int(m_shared_state->m_controller->sends_readied_),
+                                    int(m_shared_state->m_controller->recvs_posted_),
+                                    int(m_shared_state->m_controller->recvs_complete),
+                                    int(m_shared_state->m_controller->recvs_readied_));
+                    }
+
                     // generate a tag with 0xaaaaaaRRRRtttttt address, rank, tag info
                     inline std::uint64_t make_tag64(std::uint32_t tag, std::uint32_t rank) {
                         return (
@@ -252,11 +261,10 @@ namespace gridtools {
                         [[maybe_unused]] auto scp = ghex::com_deb.scope(__func__);
 
                         // increment counter of total messages sent
-//                        ++sends_posted_;
 
                         GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("send message buffer")
                                                     , "->", hpx::debug::dec<2>(dst_addr_)
-//                                                    , *send_region
+                                                    , *send_region
                                                     , "tag", hpx::debug::hex<16>(tag_)));
 
                         bool ok = false;
@@ -269,6 +277,7 @@ namespace gridtools {
                                            send_region->get_local_key(),
                                            dst_addr_, tag_, ctxt);
                             if (ret == 0) {
+                                ++m_shared_state->m_controller->sends_posted_;
                                 ok = true;
                             }
                             else if (ret == -FI_EAGAIN) {
@@ -276,10 +285,10 @@ namespace gridtools {
                                 // no point stressing the system
                                 progress();
                                 //std::this_thread::sleep_for(std::chrono::microseconds(1));
-                                if (retries++>100) {
-                                    com_err.error("FI_EAGAIN fi_tsendv", hpx::debug::dec<5>(++mult));
-                                    retries = 0;
-                                }
+//                                if (retries++>100) {
+//                                    com_err.error("FI_EAGAIN fi_tsendv", hpx::debug::dec<5>(++mult));
+//                                    retries = 0;
+//                                }
                             }
                             else if (ret == -FI_ENOENT) {
                                 // if a node has failed, we can recover
@@ -304,13 +313,13 @@ namespace gridtools {
 
                         GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("recv message buffer")
                                                     , "<-", hpx::debug::dec<2>(src_addr_)
-//                                                    , *recv_region
+                                                    , *recv_region
                                                     , "tag", hpx::debug::hex<16>(tag_)));
 
                         // this should never actually return true and yield/sleep
                         bool ok = false;
                         int retries = 0, mult = 0;
-                        while(!ok) {
+                        while (!ok) {
                             uint64_t ignore = 0;
                             ssize_t ret = fi_trecv(m_shared_state->m_rx_endpoint->get_ep(),
                                 recv_region->get_address(),
@@ -318,18 +327,19 @@ namespace gridtools {
                                 recv_region->get_local_key(),
                                 FI_ADDR_UNSPEC, tag_, ignore, ctxt);
                             if (ret ==0) {
+                                ++m_shared_state->m_controller->recvs_posted_;
                                 ok = true;
                             }
                             else if (ret == -FI_EAGAIN)
                             {
-                                com_deb.error("reposting fi_recv\n");
+                                com_deb.error("reposting fi_trecv\n");
                                 // no point stressing the system
                                 progress();
                                 //std::this_thread::sleep_for(std::chrono::microseconds(1));
-                                if (retries++>100) {
-                                    com_err.error("FI_EAGAIN fi_tsendv", hpx::debug::dec<5>(++mult));
-                                    retries = 0;
-                                }
+//                                if (retries++>100) {
+//                                    com_err.error("FI_EAGAIN fi_trecv", hpx::debug::dec<5>(++mult));
+//                                    retries = 0;
+//                                }
                             }
                             else if (ret != 0)
                             {
@@ -363,12 +373,13 @@ namespace gridtools {
                                         new context_info(m_state->m_tx_endpoint, stag, true))
                         };
 
-                        req.m_lf_ctxt->user_cb_ = [p=req.m_lf_ctxt]() {
+                        req.m_lf_ctxt->user_cb_ = [this,p=req.m_lf_ctxt]() {
                             // cleanup temp region if necessary
                             p->message_holder_.clear();
                             p->message_region_ = nullptr;
                             GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Send (future)"), "F(set)"));
                             p->set_ready();
+                            ++m_shared_state->m_controller->sends_readied_;
                         };
                         req.m_lf_ctxt->init_message_data(msg, stag);
 
@@ -383,7 +394,6 @@ namespace gridtools {
 
                         // async send, with callback to set the future ready when transfer is complete
                         send_tagged_region(req.m_lf_ctxt->message_region_, fi_addr_t(dst), stag, req.m_lf_ctxt.get());
-
                         // future constructor will be called with request as param
                         return req;
                     }
@@ -426,22 +436,23 @@ namespace gridtools {
                         req.m_lf_ctxt->init_message_data(msg, stag);
 
                         // now move message into callback
-                        req.m_lf_ctxt->user_cb_ = [
+                        req.m_lf_ctxt->user_cb_ = [this,
                              p        = req.m_lf_ctxt,
                              msg      = std::move(msg),
                              callback = std::forward<CallBack>(callback),
                              dst, tag
                              ]() mutable
                         {
+                            // cleanup temp region if necessary
+                            p->message_holder_.clear();
+                            p->message_region_ = nullptr;
+                            p->set_ready();
+                            ++m_shared_state->m_controller->sends_readied_;
                             GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Send any"),"(callback lambda)"
                                  , "F(set)", hpx::debug::dec<>(dst)));
                             callback(std::move(msg), dst, tag);
                             GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Send any"),"(callback lambda)"
                                  , "done", hpx::debug::dec<>(dst)));
-                            // cleanup temp region if necessary
-                            p->message_holder_.clear();
-                            p->message_region_ = nullptr;
-                            p->set_ready();
                         };
 
                         GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Send any"), "(callback)"
@@ -497,9 +508,10 @@ namespace gridtools {
                             , "addr", hpx::debug::ptr(msg.data())
                             , "size", hpx::debug::hex<6>(msg.size())));
 
-                        req.m_lf_ctxt->user_cb_ = [p=req.m_lf_ctxt](){
+                        req.m_lf_ctxt->user_cb_ = [this,p=req.m_lf_ctxt](){
                             GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Recv (future)"), "F(set)"));
                             p->set_ready();
+                            ++m_shared_state->m_controller->recvs_readied_;
                         };
 
                         receive_tagged_region(req.m_lf_ctxt->message_region_, fi_addr_t(src), stag, req.m_lf_ctxt.get());
@@ -539,7 +551,7 @@ namespace gridtools {
                             , "size", hpx::debug::hex<6>(msg.size())));
 
                         // now move message into callback
-                        req.m_lf_ctxt->user_cb_ = [
+                        req.m_lf_ctxt->user_cb_ = [this,
                              p        = req.m_lf_ctxt,
                              msg      = std::move(msg), // std::forward<Msg>(msg)
                              callback = std::forward<CallBack>(callback),
@@ -548,8 +560,9 @@ namespace gridtools {
                         {
                             GHEX_DP_ONLY(com_deb, debug(hpx::debug::str<>("Recv (callback)")
                                  , "F(set)", hpx::debug::dec<>(src)));
-                            callback(std::move(msg), src, tag);
                             p->set_ready();
+                            ++m_shared_state->m_controller->recvs_readied_;
+                            callback(std::move(msg), src, tag);
                         };
 
                         // perform a send with the callback for when transfer is complete
@@ -576,7 +589,3 @@ namespace gridtools {
         } // namespace tl
     } // namespace ghex
 } // namespace gridtools
-
-
-#endif /* INCLUDED_GHEX_TL_LIBFABRIC_COMMUNICATOR_CONTEXT_HPP */
-

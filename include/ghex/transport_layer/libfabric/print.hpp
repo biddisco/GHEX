@@ -1,5 +1,14 @@
-#ifndef GHEX_DEBUGGING_PRINT_HPP
-#define GHEX_DEBUGGING_PRINT_HPP
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include <array>
 #include <bitset>
@@ -760,5 +769,3 @@ namespace hpx { namespace debug {
 
 }}    // namespace hpx::debug
 /// \endcond
-
-#endif

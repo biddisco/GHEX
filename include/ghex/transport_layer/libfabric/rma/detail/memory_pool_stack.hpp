@@ -1,8 +1,17 @@
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
 #pragma once
 
 #include "ghex_libfabric_defines.hpp"
 #include <ghex/transport_layer/libfabric/libfabric_macros.hpp>
-#include <ghex/transport_layer/libfabric/rma/atomic_count.hpp>
 //
 #include <ghex/transport_layer/libfabric/rma/detail/memory_region_impl.hpp>
 #include <ghex/transport_layer/libfabric/performance_counter.hpp>

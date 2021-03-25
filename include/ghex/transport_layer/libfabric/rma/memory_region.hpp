@@ -1,10 +1,14 @@
-//  Copyright (c) 2015-2016 John Biddiscombe
-//
-//  Distributed under the Boost Software License, Version 1.0. (See accompanying
-//  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-
-#ifndef HPX_PARCELSET_POLICIES_RMA_MEMORY_REGION
-#define HPX_PARCELSET_POLICIES_RMA_MEMORY_REGION
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include "detail/memory_region_traits.hpp"
 #include "../print.hpp"
@@ -158,5 +162,3 @@ namespace rma
     };
 
 }}}}}
-
-#endif

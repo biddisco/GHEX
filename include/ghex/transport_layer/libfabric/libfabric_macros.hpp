@@ -1,5 +1,17 @@
-#if !defined(GHEX_LIBFABRIC_MACROS_HPP)
-#define GHEX_LIBFABRIC_MACROS_HPP
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
+
+// some legacy code that hasn't been removed used some old macros
+// these are just placeholders that make sure things compile
 
 #define HPX_UNUSED(x) (void) x
 
@@ -29,5 +41,3 @@
   #define HPX_UNLIKELY(expr)  expr
 #endif
 // clang-format on
-
-#endif

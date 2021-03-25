@@ -1,38 +1,14 @@
 /*
-            // 1) we need a valid address to send to the other ranks
-            // but we must get it before binding the address
-            // vector to the endpoint, so create passive endpoint
-            ep_passive_ = create_passive_endpoint(fabric_, fabric_info_);
-
-            // 2) enable it
-            // -------------------------------------------------------------------
-            struct fid_eq *event_queue_ = nullptr;
-            fi_eq_attr eq_attr = {};
-            eq_attr.wait_obj = FI_WAIT_NONE;
-            int ret = fi_eq_open(fabric_, &eq_attr, &event_queue_, nullptr);
-            if (ret) throw fabric_error(ret, "fi_eq_open");
-
-            ret = fi_pep_bind(ep_passive_, &event_queue_->fid, 0);
-            if (ret) throw fabric_error(ret, "fi_pep_bind");
-
-            ret = fi_listen(ep_passive_);
-            if (ret) throw fabric_error(ret, "fi_listen");
-
-            // 3) get the endpoint address
-            here_ = get_endpoint_address(&ep_passive_->fid);
-            GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Passive 'here'")
-                                        , iplocality(here_)));
-
-            // 4) now hand the address to the active endpoint
-            fabric_info_->handle = &(ep_passive_->fid);
-*/
-/*
-//            fi_close(&ep_passive_->fid);
-//            if (event_queue_)
-//                fi_close(&event_queue_->fid);
-*/
-#ifndef GHEX_LIBFABRIC_CONTROLLER_HPP
-#define GHEX_LIBFABRIC_CONTROLLER_HPP
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include <array>
 #include <atomic>
@@ -80,16 +56,18 @@ fi_progress libfabric_progress_type()
 #if defined(GHEX_LIBFABRIC_SOCKETS) || defined(GHEX_LIBFABRIC_TCP)
     return FI_PROGRESS_AUTO;
 #else
-    // if (std::getenv("LIBFABRIC_AUTO_PROGRESS") == nullptr)
-    return FI_PROGRESS_MANUAL;
+    if (std::getenv("LIBFABRIC_AUTO_PROGRESS") == nullptr)
+        return FI_PROGRESS_MANUAL;
+    return FI_PROGRESS_AUTO;
 #endif
 }
 
-    std::string libfabric_progress_string() {
+std::string libfabric_progress_string()
+{
     if (libfabric_progress_type() == FI_PROGRESS_AUTO)
         return "auto";
     return "manual";
-    }
+}
 
 #ifndef LIBFABRIC_PROGRESS_STRING
 # define LIBFABRIC_PROGRESS_TYPE   libfabric_progress_type()
@@ -104,20 +82,24 @@ int libfabric_endpoint_type()
     auto lf_ep_type = std::getenv("LIBFABRIC_ENDPOINT_TYPE");
     if (lf_ep_type == nullptr)
         return 0;
-    if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
-        return 2;
     if (std::string(lf_ep_type)==std::string("multiple") || std::atoi(lf_ep_type)==1)
         return 1;
+    if (std::string(lf_ep_type)==std::string("threadlocal") || std::atoi(lf_ep_type)==2)
+        return 2;
+    if (std::string(lf_ep_type)==std::string("scalable") || std::atoi(lf_ep_type)==3)
+        return 3;
     return 0;
 }
 
 std::string libfabric_endpoint_string()
     {
     auto lf_ep_type = libfabric_endpoint_type();
-    if (lf_ep_type == 2)
-                return "threadlocal";
     if (lf_ep_type == 1)
                 return "multiple";
+    if (lf_ep_type == 2)
+                return "threadlocal";
+    if (lf_ep_type == 3)
+                return "scalable";
         return "single";
     }
 
@@ -143,7 +125,7 @@ std::string libfabric_endpoint_string()
 namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
     static hpx::debug::enable_print<false> cnt_deb("CONTROL");
-static hpx::debug::enable_print<true>  cnt_err("CONTROL");
+    static hpx::debug::enable_print<true>  cnt_err("CONTROL");
 }}
 
 namespace gridtools {
@@ -162,7 +144,7 @@ class controller;
     // when using thread local endpoints, we encapsulate things that
     // can be created/destroyed by the wrapper destructor
     struct endpoint_wrapper {
-      private:
+//      private:
         fid_ep *ep_;
         fid_cq *rq_;
         fid_cq *tq_;
@@ -282,7 +264,8 @@ class controller;
     enum class endpoint_type : int {
         single      = 0,
         multiple    = 1,
-        threadlocal = 2
+        threadlocal = 2,
+        scalable    = 3,
     };
 
     class controller
@@ -292,12 +275,19 @@ class controller;
         typedef std::lock_guard<mutex_type>  scoped_lock;
 
     private:
-        // inline static requires c++17
+        // For threadlocal and scalable endpoints,
+        // we use a dedicated threadlocal endpoint wrapper
+        // NB. inline static requires c++17
         inline static thread_local
         std::unique_ptr<endpoint_wrapper> tl_tx_;
 
+        // for non threadlocal endpoints, tx/rx
         std::unique_ptr<endpoint_wrapper> ep_tx_;
         std::unique_ptr<endpoint_wrapper> ep_rx_;
+
+        std::vector<fid_cq*> scalable_cq_array;
+        std::vector<fid_ep*> scalable_ep_array;
+
 
         struct fi_info    *fabric_info_;
         struct fid_fabric *fabric_;
@@ -307,7 +297,6 @@ class controller;
         struct fid_av     *av_;
         endpoint_type      endpoint_type_;
 
-        std::atomic<std::uint32_t> bootstrap_counter_;
 
         locality here_;
         locality root_;
@@ -324,6 +313,14 @@ class controller;
 
         // Pinned memory pool used for allocating buffers
         std::shared_ptr<rma::memory_pool<region_provider>> memory_pool_;
+    public:
+        //
+        performance_counter<int, true> sends_posted_;
+        performance_counter<int, true> recvs_posted_;
+        performance_counter<int, true> sends_readied_;
+        performance_counter<int, true> recvs_readied_;
+        performance_counter<int, true> sends_complete;
+        performance_counter<int, true> recvs_complete;
 
     public:
         // --------------------------------------------------------------------
@@ -332,7 +329,7 @@ class controller;
         controller(
             std::string const &provider,
             std::string const &domain,
-            MPI_Comm mpi_comm, int rank, int size)
+            MPI_Comm mpi_comm, int rank, int size, size_t threads)
           : ep_tx_(nullptr)
           , ep_rx_(nullptr)
           , fabric_info_(nullptr)
@@ -340,6 +337,12 @@ class controller;
           , fabric_domain_(nullptr)
           , ep_passive_(nullptr)
           , av_(nullptr)
+          , sends_posted_(0)
+          , recvs_posted_(0)
+          , sends_readied_(0)
+          , recvs_readied_(0)
+          , sends_complete(0)
+          , recvs_complete(0)
         {
             GHEX_DP_ONLY(cnt_deb, eval([](){ std::cout.setf(std::ios::unitbuf); }));
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
@@ -385,9 +388,46 @@ class controller;
                 auto tx_cq = create_completion_queue(fabric_domain_, fabric_info_->tx_attr->size);
 
                 // create an endpoint for sending
+                if (endpoint_type_ == endpoint_type::scalable) {
+                    // setup a scalable endpoint for sending messages
+                    auto ep_tx = new_endpoint_scalable(fabric_domain_, fabric_info_, threads);
+                    if (!ep_tx) {
+                        // exit this if section and enter the next one instead
+                        endpoint_type_ = endpoint_type::multiple;
+                    }
+                    else {
+                        GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("scalable endpoint ok"), "Contexts required", hpx::debug::dec<4>(threads)));
+
+                        GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("fi_scalable_ep_bind AV")));
+                        int ret = fi_scalable_ep_bind(ep_tx, &av_->fid, 0);
+                        if (ret) throw fabric_error(ret, "fi_scalable_ep_bind");
+
+                        scalable_cq_array.resize(threads, nullptr);
+                        scalable_ep_array.resize(threads, nullptr);
+
+                        for (int i = 0; i < threads; i++) {
+                            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("fi_tx_context"), hpx::debug::dec<4>(i)));
+                            int ret = fi_tx_context(ep_tx, i, NULL, &scalable_ep_array[i], NULL);
+                            if (ret) throw fabric_error(ret, "fi_tx_context");
+
+                            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("create_completion_queue"), hpx::debug::dec<4>(i)));
+                            scalable_cq_array[i] = create_completion_queue(fabric_domain_, fabric_info_->tx_attr->size);
+                        }
+
+                        for (int i = 0; i < threads; i++) {
+                            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("fi_scalable_ep_bind"), hpx::debug::dec<4>(i)));
+                            bind_queue_to_endpoint(scalable_ep_array[i], scalable_cq_array[i], FI_TRANSMIT | FI_RECV);
+                            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("enable_endpoint"), hpx::debug::dec<4>(i)));
+                            enable_endpoint(scalable_ep_array[i]);
+                        }
+                        ep_rx_ = std::make_unique<endpoint_wrapper>(ep_rx, rx_cq, nullptr);
+                    }
+                }
                 if (endpoint_type_ == endpoint_type::multiple) {
                     // setup an endpoint for sending messages
-                    // this endpoint will be thread local in future
+                    // note that the CQ needs FI_RECV even though its a Tx cq to keep
+                    // some providers happy as they trigger an error if an endpoint
+                    // has no Rx cq attached (progress)
                     auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, nullptr, rank);
                     bind_queue_to_endpoint(ep_tx, tx_cq, FI_TRANSMIT | FI_RECV);
                     bind_address_vector_to_endpoint(ep_tx, av_);
@@ -396,7 +436,7 @@ class controller;
                     ep_rx_ = std::make_unique<endpoint_wrapper>(ep_rx, rx_cq, nullptr);
                     ep_tx_ = std::make_unique<endpoint_wrapper>(ep_tx, nullptr, tx_cq);
                 }
-                else {
+                if (endpoint_type_ == endpoint_type::single) {
                     // shared send/recv endpoint - bind send cq to the recv endpoint
                     bind_queue_to_endpoint(ep_rx, tx_cq, FI_TRANSMIT);
                     // combine endpoint and CQs into wrapper for convenience
@@ -605,8 +645,10 @@ class controller;
                 nullptr, nullptr, flags, fabric_hints_, &fabric_info_);
             if (ret) throw fabric_error(ret, "Failed to get fabric info");
 
-            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("Fabric info"), "\n"
-                , fi_tostr(fabric_info_, FI_TYPE_INFO)));
+            if (rank == 0) {
+                GHEX_DP_ONLY(cnt_err, trace(hpx::debug::str<>("Fabric info"), "\n"
+                    , fi_tostr(fabric_info_, FI_TYPE_INFO)));
+            }
 
             bool context = (fabric_hints_->mode & FI_CONTEXT)!=0;
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Requires FI_CONTEXT")
@@ -689,6 +731,9 @@ class controller;
         // --------------------------------------------------------------------
         struct fid_ep *new_endpoint_active(struct fid_domain *domain, struct fi_info *info, void const *src_addr, int rank)
         {
+            // don't allow multiple threads to call endpoint create at the same time
+            scoped_lock lock(controller_mutex_);
+
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Got info mode")
                                 , (info->mode & FI_NOTIFY_FLAGS_ONLY)));
@@ -739,7 +784,7 @@ class controller;
 
             struct fid_ep *ep;
             ret = fi_endpoint(domain, new_hints, &ep, nullptr);
-            if (ret) throw fabric_error(ret, "fi_endpoint");
+            if (ret) throw fabric_error(ret, "fi_endpoint (too many threadlocal endpoints?)");
 
             if (hints) {
                 // Prevent fi_freeinfo() from freeing src_add
@@ -748,6 +793,42 @@ class controller;
 //                fi_freeinfo(hints);
                 // free(socket_data);
             }
+            return ep;
+        }
+
+        // --------------------------------------------------------------------
+        struct fid_ep *new_endpoint_scalable(struct fid_domain *domain, struct fi_info *info, int threads)
+        {
+            // don't allow multiple threads to call endpoint create at the same time
+            scoped_lock lock(controller_mutex_);
+
+            [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
+
+            GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("fi_dupinfo")));
+            struct fi_info *hints = fi_dupinfo(info);
+            if (!hints) throw fabric_error(0, "fi_dupinfo");
+
+            int flags = 0;
+            struct fi_info *new_hints = nullptr;
+            int ret = fi_getinfo(FI_VERSION(GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR),
+                nullptr, nullptr, flags, hints, &new_hints);
+            if (ret) throw fabric_error(ret, "fi_getinfo");
+
+            // Check the optimal number of TX and RX contexts supported by the provider
+            int context_count = std::min(threads, int(new_hints->domain_attr->tx_ctx_cnt));
+            // ctx_cnt = MIN(threads, fabric_hints_->domain_attr->rx_ctx_cnt);
+            if (context_count<threads || context_count<=1) {
+                GHEX_DP_ONLY(cnt_err, error(hpx::debug::str<>("scalable endpoint unsupported")));
+                return nullptr;
+            }
+            new_hints->ep_attr->tx_ctx_cnt = context_count;
+            new_hints->ep_attr->rx_ctx_cnt = 0;
+
+            struct fid_ep *ep;
+            ret = fi_scalable_ep(domain, new_hints, &ep, nullptr);
+            if (ret) throw fabric_error(ret, "fi_scalable_ep");
+
+            fi_freeinfo(hints);
             return ep;
         }
 
@@ -774,6 +855,34 @@ class controller;
                     bind_address_vector_to_endpoint(ep_tx, av_);
                     enable_endpoint(ep_tx);
                     tl_tx_ = std::make_unique<endpoint_wrapper>(ep_tx, nullptr, txcq);
+                }
+                return tl_tx_.get();
+            }
+            else if (endpoint_type_ == endpoint_type::scalable) {
+                if (tl_tx_ == nullptr) {
+                    static std::atomic<int> thread_counter(0);
+                    // get a unique index for this thread
+                    int endpoint_index = thread_counter++;
+                    if (endpoint_index>scalable_ep_array.size()) {
+                        GHEX_DP_ONLY(cnt_err, error(hpx::debug::str<>("Endpoint overflow")));
+                        endpoint_index = endpoint_index % scalable_ep_array.size();
+                    }
+                    auto ep = scalable_ep_array[endpoint_index];
+                    auto cq = scalable_cq_array[endpoint_index];
+                    tl_tx_ = std::make_unique<endpoint_wrapper>(ep, nullptr, cq);
+                    GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("Make endpoint scalable")
+                                                , hpx::debug::dec<3>(endpoint_index)
+                                                , "ep", hpx::debug::ptr(ep)
+                                                , "cq", hpx::debug::ptr(cq)
+                                                ));
+                }
+                else {
+                    auto ptr = tl_tx_.get();
+                    GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("Return endpoint scalable")
+                                                , "ptr", hpx::debug::ptr(ptr)
+                                                , "ep", hpx::debug::ptr(ptr->ep_)
+                                                , "cq", hpx::debug::ptr(ptr->tq_)
+                                                ));
                 }
                 return tl_tx_.get();
             }
@@ -919,23 +1028,23 @@ class controller;
         // --------------------------------------------------------------------
         gridtools::ghex::tl::cb::progress_status poll_for_work_completions()
         {
-            bool retry = true;
+            bool retry;
             int sends = 0;
             int recvs = 0;
-            while (retry) {
-                progress_count prog_s = poll_send_queue(get_tx_endpoint()->get_tx_cq());
-                progress_count prog_r = poll_recv_queue(get_rx_endpoint()->get_rx_cq());
-                sends += prog_s.user_msgs;
-                recvs += prog_r.user_msgs;
+            do {
+                int trecv = poll_recv_queue(get_rx_endpoint()->get_rx_cq());
+                int tsend = poll_send_queue(get_tx_endpoint()->get_tx_cq());
+                sends += tsend;
+                recvs += trecv;
                 // we always retry until no new completion events are
                 // found. this helps progress all messages
-                retry = prog_s.completions_handled || prog_r.completions_handled;
-            }
+                retry = (tsend + trecv)>0;
+            } while (retry);
             return gridtools::ghex::tl::cb::progress_status{sends, recvs, 0};
         }
 
         // --------------------------------------------------------------------
-        progress_count poll_send_queue(fid_cq *send_cq)
+        int poll_send_queue(fid_cq *send_cq)
         {
             const int MAX_SEND_COMPLETIONS = 1;
             int ret;
@@ -945,7 +1054,7 @@ class controller;
                 std::unique_lock<mutex_type> lock(send_mutex_, std::try_to_lock_t{});
                 // if another thread is polling now, just exit
                 if (!lock.owns_lock()) {
-                    return progress_count{false, 0};
+                    return 0;
                 }
 
                 static auto polling = cnt_deb.make_timer(1
@@ -973,15 +1082,16 @@ class controller;
                     }
                     context_info* handler = reinterpret_cast<context_info*>(e.op_context);
                     handler->handle_error(e);
-                    return progress_count{false, 0};
+                    return 0;
                 }
             }
             //
             // release the lock and process each completion
             //
             if (ret>0) {
-                progress_count processed{true, 0};
+                int processed = 0;
                 for (int i=0; i<ret; ++i) {
+                    ++sends_complete;
                     GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                         , "txcq wr_id"
                         , fi_tostr(&entry[i].flags, FI_TYPE_OP_FLAGS)
@@ -993,21 +1103,21 @@ class controller;
                             , "txcq MSG tagged send completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_send_completion();
+                        processed += handler->handle_send_completion();
                     }
                     else if (entry[i].flags == (FI_TAGGED | FI_SEND)) {
                         GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                             , "txcq MSG tagged send completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_send_completion();
+                        processed += handler->handle_send_completion();
                     }
                     else if (entry[i].flags == (FI_MSG | FI_SEND)) {
                         GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                             , "txcq MSG send completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_send_completion();
+                        processed += handler->handle_send_completion();
                     }
                     else {
                         cnt_deb.error("Received an unknown txcq completion"
@@ -1024,11 +1134,11 @@ class controller;
             else {
                 cnt_deb.error("unknown error in completion txcq read");
             }
-            return progress_count{false, 0};
+            return 0;
         }
 
         // --------------------------------------------------------------------
-        progress_count poll_recv_queue(fid_cq *rx_cq)
+        int poll_recv_queue(fid_cq *rx_cq)
         {
             const int MAX_RECV_COMPLETIONS = 1;
             int ret;
@@ -1038,7 +1148,7 @@ class controller;
                 std::unique_lock<mutex_type> lock(recv_mutex_, std::try_to_lock_t{});
                 // if another thread is polling now, just exit
                 if (!lock.owns_lock()) {
-                    return progress_count{false, 0};
+                    return 0;
                 }
 
                 static auto polling = cnt_deb.make_timer(1
@@ -1077,15 +1187,16 @@ class controller;
                         fi_cq_strerror(rx_cq, e.prov_errno, e.err_data, (char*)e.buf, e.len));
                         std::terminate();
                     }
-                    return progress_count{false, 0};
+                    return 0;
                 }
             }
             //
             // release the lock and process each completion
             //
             if (ret>0) {
-                progress_count processed{true, 0};
+                int processed = 0;
                 for (int i=0; i<ret; ++i) {
+                    ++recvs_complete;
                     GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                         , "rxcq wr_id"
                         , fi_tostr(&entry[i].flags, FI_TYPE_OP_FLAGS)
@@ -1097,21 +1208,21 @@ class controller;
                             , "rxcq MSG tagged recv completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_recv_completion(entry[i].len);
+                        processed += handler->handle_recv_completion(entry[i].len);
                     }
                     else if (entry[i].flags == (FI_TAGGED | FI_RECV)) {
                         GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                             , "rxcq MSG tagged recv completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_recv_completion(entry[i].len);
+                        processed += handler->handle_recv_completion(entry[i].len);
                     }
                     else if (entry[i].flags == (FI_MSG | FI_RECV)) {
                         GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Completion")
                             , "rxcq MSG recv completion"
                             , hpx::debug::ptr(entry[i].op_context)));
                         context_info* handler = reinterpret_cast<context_info*>(entry[i].op_context);
-                        processed.user_msgs += handler->handle_recv_completion(entry[i].len);
+                        processed += handler->handle_recv_completion(entry[i].len);
                     }
                     else {
                         cnt_deb.error("Received an unknown rxcq completion"
@@ -1128,7 +1239,7 @@ class controller;
             else {
                 cnt_deb.error("unknown error in completion rxcq read");
             }
-            return progress_count{false, 0};
+            return 0;
         }
 
         // --------------------------------------------------------------------
@@ -1158,6 +1269,7 @@ class controller;
             cq_attr.wait_cond = FI_CQ_COND_NONE;
             cq_attr.size      = size;
             cq_attr.flags     = 0 /*FI_COMPLETION*/;
+            GHEX_DP_ONLY(cnt_deb, trace(hpx::debug::str<>("CQ size"), hpx::debug::dec<4>(size)));
             // open completion queue on fabric domain and set context to null
             int ret = fi_cq_open(domain, &cq_attr, &cq, nullptr);
             if (ret) throw fabric_error(ret, "fi_cq_open");
@@ -1208,8 +1320,7 @@ class controller;
                           , "fi_addr" , hpx::debug::hex<4>(fi_addr)));
             return new_locality;
         }
+
     };
 
 }}}}
-
-#endif

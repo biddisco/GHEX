@@ -1,12 +1,14 @@
-//  Copyright (c) 2015-2017 John Biddiscombe
-//  Copyright (c) 2017      Thomas Heller
-//
-//  SPDX-License-Identifier: BSL-1.0
-//  Distributed under the Boost Software License, Version 1.0. (See accompanying
-//  file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
-
-#ifndef GHEX_LIBFABRIC_RMA_BASE_HPP
-#define GHEX_LIBFABRIC_RMA_BASE_HPP
+/*
+ * GridTools
+ *
+ * Copyright (c) 2014-2020, ETH Zurich
+ * All rights reserved.
+ *
+ * Please, refer to the LICENSE file in the root directory.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ */
+#pragma once
 
 #include <rdma/fi_eq.h>
 #include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
@@ -382,5 +384,3 @@ namespace libfabric
 }}}}
 
 gridtools::ghex::tl::libfabric::rma::memory_pool<gridtools::ghex::tl::libfabric::libfabric_region_provider> *gridtools::ghex::tl::libfabric::libfabric_region_holder::memory_pool_ = nullptr;
-
-#endif
