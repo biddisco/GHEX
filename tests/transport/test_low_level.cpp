@@ -102,7 +102,7 @@ auto test_unidirectional(Context& context) {
 #ifdef GHEX_TEST_COUNT_ITERATIONS
             c++;
 #endif
-         } while (!fut.ready());
+         } while (!fut.test());
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         std::cout << "\n***********\n";
@@ -139,7 +139,7 @@ auto test_bidirectional(Context& context) {
 #ifdef GHEX_TEST_COUNT_ITERATIONS
         c++;
 #endif
-     } while (!rfut.ready());
+     } while (!rfut.test());
 
 #ifdef GHEX_TEST_COUNT_ITERATIONS
     std::cout << "\n***********\n";

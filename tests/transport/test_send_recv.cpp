@@ -66,7 +66,7 @@ auto test_ring_send_recv_ft(CommType& comm, std::size_t buffer_size)
 
         auto rreq = comm.recv(rmsg, rpeer_rank, 1);
         auto sreq = comm.send(smsg, speer_rank, 1);
-        while(!(rreq.ready() && sreq.ready()));
+        while(!(rreq.test() && sreq.test()));
 
         data_ptr = reinterpret_cast<int*>(rmsg.data());
         EXPECT_TRUE(*data_ptr == rpeer_rank);
