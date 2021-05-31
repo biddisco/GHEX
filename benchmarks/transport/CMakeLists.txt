@@ -3,6 +3,7 @@ set(_benchmarks ghex_p2p_bi_cb_avail ghex_p2p_bi_cb_wait ghex_p2p_bi_ft_avail gh
 
 # Variable used for benchmarks that require multithreading support
 set(_benchmarks_mt ghex_p2p_bi_cb_avail ghex_p2p_bi_cb_wait ghex_p2p_bi_ft_avail ghex_p2p_bi_ft_wait ghex_p2p_pp_ft_avail)
+set(_benchmarks_mpi mpi_p2p_bi_avail_mt)
 
 foreach (_t ${_benchmarks})
     add_executable(${_t} ${_t}_mt.cpp )
@@ -15,6 +16,16 @@ if (OpenMP_FOUND)
         add_executable(${_t}_mt ${_t}_mt.cpp )
         target_compile_definitions(${_t}_mt PRIVATE USE_OPENMP USE_POOL_ALLOCATOR)
         target_link_libraries(${_t}_mt ghexlib OpenMP::OpenMP_CXX)
+    endforeach()
+
+    foreach (_t ${_benchmarks_mpi})
+        add_executable(${_t} ${_t}.cpp )
+        target_compile_definitions(${_t} PRIVATE USE_OPENMP USE_POOL_ALLOCATOR)
+        target_link_libraries(${_t} ghexlib OpenMP::OpenMP_CXX)
+
+        add_executable(${_t}_testany ${_t}.cpp )
+        target_compile_definitions(${_t}_testany PRIVATE USE_OPENMP USE_POOL_ALLOCATOR TEST_ANY)
+        target_link_libraries(${_t}_testany ghexlib OpenMP::OpenMP_CXX)
     endforeach()
 endif()
 
