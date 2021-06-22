@@ -1,12 +1,12 @@
-/* 
+/*
  * GridTools
- * 
+ *
  * Copyright (c) 2014-2020, ETH Zurich
  * All rights reserved.
- * 
+ *
  * Please, refer to the LICENSE file in the root directory.
  * SPDX-License-Identifier: BSD-3-Clause
- * 
+ *
  */
 #ifndef INCLUDED_GHEX_ARCH_TRAITS_HPP
 #define INCLUDED_GHEX_ARCH_TRAITS_HPP
@@ -18,7 +18,8 @@
 #include "./arch_list.hpp"
 
 #ifdef GHEX_TEST_USE_LIBFABRIC
-#include <ghex/transport_layer/libfabric/rma/detail/memory_region_allocator.hpp>
+#include <alloctools/memory_region_allocator.hpp>
+#include <alloctools/libfabric/region_provider.hpp>
 #endif
 
 namespace gridtools {
@@ -35,9 +36,9 @@ namespace gridtools {
             using device_id_type          = int;
 #ifdef GHEX_TEST_USE_LIBFABRIC
             template <typename T>
-            using libfabric_allocator_type = tl::libfabric::rma::memory_region_allocator<T>;
+            using libfabric_allocator_type = alloctools::rma::memory_region_allocator<T>;
             using basic_allocator_type     = libfabric_allocator_type<unsigned char>;
-            using pool_type                = tl::libfabric::rma::memory_pool<tl::libfabric::libfabric_region_provider, unsigned char>;
+            using pool_type                = alloctools::rma::memory_pool<alloctools::rma::libfabric::region_provider, unsigned char>;
             using pool_allocator_type      = basic_allocator_type;
             using message_allocator_type   = basic_allocator_type;
 #else
@@ -46,13 +47,13 @@ namespace gridtools {
             using pool_allocator_type     = typename pool_type::allocator_type;
             using message_allocator_type  = allocator::aligned_allocator_adaptor<pool_allocator_type,64>;
 #endif
-            
+
             using message_type            = tl::message_buffer<message_allocator_type>;
 
             static device_id_type default_id() { return 0; }
 
-            static message_type make_message(pool_type& pool, device_id_type index = default_id()) 
-            { 
+            static message_type make_message(pool_type& pool, device_id_type index = default_id())
+            {
                 static_assert(std::is_same<decltype(index),device_id_type>::value, "trick to prevent warnings");
                 //return {};
 #ifdef GHEX_TEST_USE_LIBFABRIC
@@ -80,8 +81,8 @@ namespace gridtools {
 
             static device_id_type default_id() { return 0; }
 
-            static message_type make_message(pool_type& pool, device_id_type index = default_id()) 
-            { 
+            static message_type make_message(pool_type& pool, device_id_type index = default_id())
+            {
                 static_assert(std::is_same<decltype(index),device_id_type>::value, "trick to prevent warnings");
                 //return {};
                 return { message_allocator_type{pool.get_allocator()} };

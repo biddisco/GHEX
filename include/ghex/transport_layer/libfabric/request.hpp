@@ -20,9 +20,10 @@ static hpx::debug::enable_print<false> req_deb("REQUEST");
 
 namespace gridtools{ namespace ghex { namespace tl { namespace libfabric {
 
-        using region_provider    = libfabric_region_provider;
-        using region_type        = rma::detail::memory_region_impl<region_provider>;
-        using libfabric_msg_type = message_buffer<rma::memory_region_allocator<unsigned char>>;
+        using region_provider    = region_provider;
+using region_type     = alloctools::rma::memory_region;
+//        using region_type        = alloctools::rma::detail::memory_region_impl<region_provider>;
+        using libfabric_msg_type = message_buffer<alloctools::rma::memory_region_allocator<unsigned char>>;
         using any_msg_type       = gridtools::ghex::tl::libfabric::any_libfabric_message;
 
         /** @brief the type of the communication */

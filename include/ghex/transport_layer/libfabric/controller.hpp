@@ -40,13 +40,16 @@
 #include <ghex/transport_layer/libfabric/print.hpp>
 #include <ghex/transport_layer/libfabric/fabric_error.hpp>
 #include <ghex/transport_layer/libfabric/locality.hpp>
-#include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
-#include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
-#include <ghex/transport_layer/libfabric/rma/detail/memory_region_allocator.hpp>
+#include <alloctools/memory_pool.hpp>
+#include <alloctools/memory_region_allocator.hpp>
+#include <alloctools/libfabric/region_provider.hpp>
 #include <ghex/transport_layer/libfabric/rma_base.hpp>
+//
 #include <ghex/transport_layer/libfabric/unique_function.hpp>
 //
 #include <mpi.h>
+
+#define LIBFABRIC_NAMESPACE ghex
 
 // ----------------------------------------
 // auto progress (libfabric thread) or manual
@@ -111,7 +114,7 @@ std::string libfabric_endpoint_string()
 // ------------------------------------------------
 // Needed on Cray for GNI extensions
 // ------------------------------------------------
-#ifdef GHEX_LIBFABRIC_PROVIDER_GNI
+#ifdef GHEX_LIBFABRIC_GNI
 # include "rdma/fi_ext_gni.h"
 #endif
 
@@ -119,12 +122,12 @@ std::string libfabric_endpoint_string()
 # include <pmi2.h>
 #endif
 
-#define GHEX_LIBFABRIC_FI_VERSION_MAJOR 1
-#define GHEX_LIBFABRIC_FI_VERSION_MINOR 11
+#define LIBFABRIC_FI_VERSION_MAJOR 1
+#define LIBFABRIC_FI_VERSION_MINOR 11
 
 namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
-    static hpx::debug::enable_print<false> cnt_deb("CONTROL");
+    static hpx::debug::enable_print<true> cnt_deb("CONTROL");
     static hpx::debug::enable_print<true>  cnt_err("CONTROL");
 }}
 
@@ -134,9 +137,10 @@ namespace tl {
 namespace libfabric
 {
 
-using region_provider    = libfabric_region_provider;
-using region_type        = rma::detail::memory_region_impl<region_provider>;
-using libfabric_msg_type = message_buffer<rma::memory_region_allocator<unsigned char>>;
+using region_provider    = alloctools::rma::libfabric::region_provider;
+//using region_type        = alloctools::rma::detail::memory_region_impl<region_provider>;
+using region_type     = alloctools::rma::memory_region;
+using libfabric_msg_type = message_buffer<alloctools::rma::memory_region_allocator<unsigned char>>;
 using any_msg_type       = gridtools::ghex::tl::libfabric::any_libfabric_message;
 
 class controller;
@@ -144,7 +148,6 @@ class controller;
     // when using thread local endpoints, we encapsulate things that
     // can be created/destroyed by the wrapper destructor
     struct endpoint_wrapper {
-//      private:
         fid_ep *ep_;
         fid_cq *rq_;
         fid_cq *tq_;
@@ -297,14 +300,8 @@ class controller;
         struct fid_av     *av_;
         endpoint_type      endpoint_type_;
 
-
         locality here_;
         locality root_;
-
-        // store info about local device
-        std::string  device_;
-        std::string  interface_;
-        sockaddr_in  local_addr_;
 
         // used during queue creation setup and during polling
         mutex_type   controller_mutex_;
@@ -312,15 +309,15 @@ class controller;
         mutex_type   recv_mutex_;
 
         // Pinned memory pool used for allocating buffers
-        std::shared_ptr<rma::memory_pool<region_provider>> memory_pool_;
+        std::shared_ptr<alloctools::rma::memory_pool<region_provider>> memory_pool_;
     public:
         //
-        performance_counter<int, true> sends_posted_;
-        performance_counter<int, true> recvs_posted_;
-        performance_counter<int, true> sends_readied_;
-        performance_counter<int, true> recvs_readied_;
-        performance_counter<int, true> sends_complete;
-        performance_counter<int, true> recvs_complete;
+        alloctools::debug::performance_counter<int, true> sends_posted_;
+        alloctools::debug::performance_counter<int, true> recvs_posted_;
+        alloctools::debug::performance_counter<int, true> sends_readied_;
+        alloctools::debug::performance_counter<int, true> recvs_readied_;
+        alloctools::debug::performance_counter<int, true> sends_complete;
+        alloctools::debug::performance_counter<int, true> recvs_complete;
 
     public:
         // --------------------------------------------------------------------
@@ -350,20 +347,20 @@ class controller;
             endpoint_type_ = static_cast<endpoint_type>(libfabric_endpoint_type());
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("Endpoints"), LIBFABRIC_ENDPOINT_STRING));
 
-            open_fabric(provider, domain, rank);
+           open_fabric(provider, domain, rank==0);
 
             // Create a memory pool for pinned buffers
-            memory_pool_ = rma::memory_pool<region_provider>::init_memory_pool(fabric_domain_);
+            memory_pool_ = alloctools::rma::memory_pool<region_provider>::init_memory_pool(fabric_domain_);
 
             // initialize rma allocator with a pool
-            ghex::tl::libfabric::rma::memory_region_allocator<unsigned char> allocator{};
-            allocator.init_memory_pool(memory_pool_.get());
+            alloctools::rma::memory_region_allocator<unsigned char> allocator{};
+            allocator.set_memory_pool(memory_pool_.get());
             libfabric_region_holder::memory_pool_ = memory_pool_.get();
 
             // setup an endpoint for receiving messages
             // rx endpoint is shared by all threads
             here_ = locality("127.0.0.1", "7909");
-            auto ep_rx = new_endpoint_active(fabric_domain_, fabric_info_, here_.fabric_data(), rank);
+            auto ep_rx = new_endpoint_active(fabric_domain_, fabric_info_, here_.fabric_data(), rank==0);
 
             // create an address vector that will be bound to endpoints
             av_ = create_address_vector(fabric_info_, size);
@@ -428,7 +425,8 @@ class controller;
                     // note that the CQ needs FI_RECV even though its a Tx cq to keep
                     // some providers happy as they trigger an error if an endpoint
                     // has no Rx cq attached (progress)
-                    auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, nullptr, rank);
+                    auto ep_tx = new_endpoint_active(fabric_domain_, fabric_info_, nullptr, rank==0);
+                    // we add FI_RECV because there migh be a progress bug without it
                     bind_queue_to_endpoint(ep_tx, tx_cq, FI_TRANSMIT | FI_RECV);
                     bind_address_vector_to_endpoint(ep_tx, av_);
                     enable_endpoint(ep_tx);
@@ -563,7 +561,7 @@ class controller;
 
         // --------------------------------------------------------------------
         // initialize the basic fabric/domain/name
-        void open_fabric(std::string const& provider, std::string const& domain, int rank)
+        void open_fabric(std::string const& provider, std::string const& domain, bool rootnode)
         {
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
 
@@ -582,7 +580,7 @@ class controller;
 //            memcpy(socket_data, here_.fabric_data(), locality_defs::array_size);
 
             // If we are the root node, then create connection with the right port address
-//            if (rank == 0) {
+//            if (rootnode) {
 //                GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("root locality = src")
 //                              , iplocality(root_)));
 //                fabric_hints_->src_addr     = socket_data;
@@ -614,7 +612,7 @@ class controller;
             }
 
             // use infiniband type basic registration for now
-#ifdef GHEX_LIBFABRIC_PROVIDER_GNI
+#ifdef GHEX_LIBFABRIC_GNI
             fabric_hints_->domain_attr->mr_mode = FI_MR_BASIC;
 #else
             fabric_hints_->domain_attr->mr_mode = FI_MR_BASIC;
@@ -639,13 +637,13 @@ class controller;
             uint64_t flags = 0;
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("get fabric info")
                           , "FI_VERSION"
-                          , hpx::debug::dec(GHEX_LIBFABRIC_FI_VERSION_MAJOR)
-                          , hpx::debug::dec(GHEX_LIBFABRIC_FI_VERSION_MINOR)));
-            int ret = fi_getinfo(FI_VERSION(GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR),
+                          , hpx::debug::dec(LIBFABRIC_FI_VERSION_MAJOR)
+                          , hpx::debug::dec(LIBFABRIC_FI_VERSION_MINOR)));
+            int ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR),
                 nullptr, nullptr, flags, fabric_hints_, &fabric_info_);
             if (ret) throw fabric_error(ret, "Failed to get fabric info");
 
-            if (rank == 0) {
+            if (rootnode) {
                 GHEX_DP_ONLY(cnt_err, trace(hpx::debug::str<>("Fabric info"), "\n"
                     , fi_tostr(fabric_info_, FI_TYPE_INFO)));
             }
@@ -667,7 +665,7 @@ class controller;
             ret = fi_domain(fabric_, fabric_info_, &fabric_domain_, nullptr);
             if (ret) throw fabric_error(ret, "fi_domain");
 
-#ifdef GHEX_LIBFABRIC_PROVIDER_GNI
+#ifdef GHEX_LIBFABRIC_GNI
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, "GNI memory registration block");
 
 #ifdef GHEX_GNI_UDREG
@@ -707,7 +705,7 @@ class controller;
         void _set_check_domain_op_value([[maybe_unused]] int op, [[maybe_unused]] const char *value)
         {
             [[maybe_unused]] auto scp = ghex::cnt_deb.scope(this, __func__);
-#ifdef GHEX_LIBFABRIC_PROVIDER_GNI
+#ifdef GHEX_LIBFABRIC_GNI
             struct fi_gni_ops_domain *gni_domain_ops;
             char *get_val;
             int ret = fi_open_ops(&fabric_domain_->fid, FI_GNI_DOMAIN_OPS_1,
@@ -729,7 +727,7 @@ class controller;
 
 
         // --------------------------------------------------------------------
-        struct fid_ep *new_endpoint_active(struct fid_domain *domain, struct fi_info *info, void const *src_addr, int rank)
+        struct fid_ep *new_endpoint_active(struct fid_domain *domain, struct fi_info *info, void const *src_addr, bool rootnode)
         {
             // don't allow multiple threads to call endpoint create at the same time
             scoped_lock lock(controller_mutex_);
@@ -741,9 +739,8 @@ class controller;
             GHEX_DP_ONLY(cnt_deb, debug(hpx::debug::str<>("fi_dupinfo")));
             struct fi_info *hints = fi_dupinfo(info);
             if (!hints) throw fabric_error(0, "fi_dupinfo");
-
-#if defined(GHEX_LIBFABRIC_PROVIDER_SOCKETS) || defined(GHEX_LIBFABRIC_PROVIDER_TCP)
-            if (rank==0 && src_addr) {
+#if defined(GHEX_LIBFABRIC_SOCKETS) || defined(GHEX_LIBFABRIC_TCP)
+            if (rootnode && src_addr) {
                 /* Set src addr hints (FI_SOURCE must not be set in that case) */
 //                free(hints->src_addr);
                 struct sockaddr_in *socket_data = (struct sockaddr_in *)malloc(sizeof(struct sockaddr_in));
@@ -758,7 +755,7 @@ class controller;
 #endif
             int flags = 0;
             struct fi_info *new_hints = nullptr;
-            int ret = fi_getinfo(FI_VERSION(GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR),
+            int ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR),
                 nullptr, nullptr, flags, hints, &new_hints);
             if (ret) throw fabric_error(ret, "fi_getinfo");
 
@@ -810,7 +807,7 @@ class controller;
 
             int flags = 0;
             struct fi_info *new_hints = nullptr;
-            int ret = fi_getinfo(FI_VERSION(GHEX_LIBFABRIC_FI_VERSION_MAJOR, GHEX_LIBFABRIC_FI_VERSION_MINOR),
+            int ret = fi_getinfo(FI_VERSION(LIBFABRIC_FI_VERSION_MAJOR, LIBFABRIC_FI_VERSION_MINOR),
                 nullptr, nullptr, flags, hints, &new_hints);
             if (ret) throw fabric_error(ret, "fi_getinfo");
 
@@ -1051,11 +1048,16 @@ class controller;
             fi_cq_msg_entry entry[MAX_SEND_COMPLETIONS];
             // create a scoped block for the lock
             {
-                std::unique_lock<mutex_type> lock(send_mutex_, std::try_to_lock_t{});
+                // when threadlocal endpoints are used, we do not need to lock
+                auto lock = (endpoint_type_ == endpoint_type::scalable || endpoint_type_ == endpoint_type::threadlocal) ?
+                            std::unique_lock<mutex_type>()
+                          : std::unique_lock<mutex_type>(send_mutex_, std::try_to_lock_t{});
+
                 // if another thread is polling now, just exit
                 if (!lock.owns_lock()) {
                     return 0;
                 }
+                std::cout << "Got the lock" << std::endl;
 
                 static auto polling = cnt_deb.make_timer(1
                         , hpx::debug::str<>("poll send queue"));
@@ -1069,7 +1071,7 @@ class controller;
                 if (ret == -FI_EAVAIL) {
                     struct fi_cq_err_entry e = {};
                     int err_sz = fi_cq_readerr(send_cq, &e ,0);
-                    HPX_UNUSED(err_sz);
+                    (void) err_sz;
 
                     // flags might not be set correctly
                     if (e.flags == (FI_MSG | FI_SEND)) {
@@ -1164,7 +1166,7 @@ class controller;
                     // read the full error status
                     struct fi_cq_err_entry e = {};
                     int err_sz = fi_cq_readerr(rx_cq, &e ,0);
-                    HPX_UNUSED(err_sz);
+                    (void) err_sz;
                     // from the manpage 'man 3 fi_cq_readerr'
                     if (e.err==FI_ECANCELED) {
                         GHEX_DP_ONLY(cnt_deb, debug("rxcq Cancelled "
@@ -1248,12 +1250,12 @@ class controller;
         }
 
         // --------------------------------------------------------------------
-        inline std::shared_ptr<rma::memory_pool<region_provider>> get_memory_pool() {
+        inline std::shared_ptr<alloctools::rma::memory_pool<region_provider>> get_memory_pool() {
             return memory_pool_;
         };
 
         // --------------------------------------------------------------------
-        inline rma::memory_pool<region_provider>& get_memory_pool_ptr() {
+        inline alloctools::rma::memory_pool<region_provider>& get_memory_pool_ptr() {
             return *memory_pool_;
         }
 

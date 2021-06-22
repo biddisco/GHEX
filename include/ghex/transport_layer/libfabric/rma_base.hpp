@@ -10,15 +10,18 @@
  */
 #pragma once
 
-#include <rdma/fi_eq.h>
-#include <ghex/transport_layer/libfabric/libfabric_region_provider.hpp>
-#include <ghex/transport_layer/libfabric/rma/memory_pool.hpp>
 #include <ghex/transport_layer/callback_utils.hpp>
+#include <alloctools/memory_pool.hpp>
+#include <alloctools/libfabric/region_provider.hpp>
 
 #ifdef SHOW_STACKTRACE
 #define BOOST_STACKTRACE_USE_ADDR2LINE
 #include <boost/stacktrace.hpp>
 #endif
+
+#define ASSERT(expr)                                             \
+    (!!(expr) ? void() :                                         \
+        throw std::runtime_error("Assertion"));
 
 namespace gridtools { namespace ghex {
     // cppcheck-suppress ConfigurationNotChecked
@@ -48,7 +51,7 @@ namespace libfabric
         rma_base(rma_context_type ctx_type)
             : context_rma_type(ctx_type)
         {
-            HPX_ASSERT(reinterpret_cast<void*>(&this->context_reserved_space)
+            ASSERT(reinterpret_cast<void*>(&this->context_reserved_space)
                         == reinterpret_cast<void*>(&*this));
         }
 
@@ -63,11 +66,12 @@ namespace libfabric
 
     struct libfabric_region_holder
     {
-        using region_provider   = libfabric_region_provider;
-        using region_type       = rma::detail::memory_region_impl<region_provider>;
+        using region_provider = alloctools::rma::libfabric::region_provider;
+//        using region_type     = alloctools::rma::detail::memory_region_impl<region_provider>;
+        using region_type     = alloctools::rma::memory_region;
 
         // needed for registering and unregistering memory
-        static rma::memory_pool<libfabric_region_provider> *memory_pool_;
+        static alloctools::rma::memory_pool<region_provider> *memory_pool_;
 
         // empty holder
         libfabric_region_holder() {
@@ -164,8 +168,9 @@ namespace libfabric
     template<typename T>
     struct libfabric_ref_message
     {
-        using region_provider   = libfabric_region_provider;
-        using region_type       = rma::detail::memory_region_impl<region_provider>;
+        using region_provider = alloctools::rma::libfabric::region_provider;
+//        using region_type       = alloctools::rma::detail::memory_region_impl<region_provider>;
+        using region_type     = alloctools::rma::memory_region;
 
         using value_type = T;
         T* m_data;
@@ -181,10 +186,11 @@ namespace libfabric
     struct any_libfabric_message
     {
         using value_type        = unsigned char;
-        using region_provider   = libfabric_region_provider;
-        using region_type       = rma::detail::memory_region_impl<region_provider>;
+        using region_provider   = alloctools::rma::libfabric::region_provider;
+//        using region_type       = alloctools::rma::detail::memory_region_impl<region_provider>;
+        using region_type       = alloctools::rma::memory_region;
         template<typename T>
-        using allocator_type    = rma::memory_region_allocator<T>;
+        using allocator_type    = alloctools::rma::memory_region_allocator<T>;
         template<typename T>
         using libfabric_message_type = tl::message_buffer<allocator_type<T>>;
 
@@ -331,7 +337,7 @@ namespace libfabric
         void init_rma(tl::message_buffer<std::allocator<unsigned char>> &msg) {
             #pragma message(                                                         \
                 "1 You are using a std::allocator with the libfabric transport layer." \
-                "For improved efficiency, please use rma::memory_region_allocator<T>")
+                "For improved efficiency, please use alloctools::rma::memory_region_allocator<T>")
             m_holder.set_rma_from_pointer(msg.data(), msg.size());
         }
 
@@ -340,7 +346,7 @@ namespace libfabric
         void init_rma(tl::shared_message_buffer<std::allocator<unsigned char>> &msg) {
             #pragma message(                                                         \
                 "2 You are using a std::allocator with the libfabric transport layer." \
-                "For improved efficiency, please use rma::memory_region_allocator<T>")
+                "For improved efficiency, please use alloctools::rma::memory_region_allocator<T>")
             m_holder.set_rma_from_pointer(msg.data(), msg.size());
         }
 
@@ -349,7 +355,7 @@ namespace libfabric
         void init_rma(std::shared_ptr<tl::message_buffer<std::allocator<unsigned char>>> &smsg) {
             #pragma message(                                                         \
                 "3 You are using a std::allocator with the libfabric transport layer." \
-                "For improved efficiency, please use rma::memory_region_allocator<T>")
+                "For improved efficiency, please use alloctools::rma::memory_region_allocator<T>")
             m_holder.set_rma_from_pointer(smsg->data(), smsg->size());
         }
 
@@ -358,7 +364,7 @@ namespace libfabric
         void init_rma(std::shared_ptr<tl::shared_message_buffer<std::allocator<unsigned char>>> &smsg) {
             #pragma message(                                                         \
                 "4 You are using a std::allocator with the libfabric transport layer." \
-                "For improved efficiency, please use rma::memory_region_allocator<T>")
+                "For improved efficiency, please use alloctools::rma::memory_region_allocator<T>")
             m_holder.set_rma_from_pointer(
                         smsg->m_message->data(), smsg->m_message->size());
         }
@@ -383,4 +389,4 @@ namespace libfabric
 
 }}}}
 
-gridtools::ghex::tl::libfabric::rma::memory_pool<gridtools::ghex::tl::libfabric::libfabric_region_provider> *gridtools::ghex::tl::libfabric::libfabric_region_holder::memory_pool_ = nullptr;
+alloctools::rma::memory_pool<alloctools::rma::libfabric::region_provider> *gridtools::ghex::tl::libfabric::libfabric_region_holder::memory_pool_ = nullptr;

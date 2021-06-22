@@ -64,8 +64,9 @@ namespace gridtools {
                     }
                 }
 
-                using region_provider    = libfabric_region_provider;
-                using region_type        = rma::detail::memory_region_impl<region_provider>;
+                using region_provider    = region_provider;
+//                using region_type        = alloctools::rma::detail::memory_region_impl<region_provider>;
+                using region_type        = alloctools::rma::memory_region;
 
                 struct status_t {};
 
@@ -194,7 +195,7 @@ namespace gridtools {
                     using request                = request_t;
 
                     template<typename T> using future = future_t<T>;
-                    template<typename T> using allocator_type  = ghex::tl::libfabric::rma::memory_region_allocator<T>;
+                    template<typename T> using allocator_type  = alloctools::rma::memory_region_allocator<T>;
                     using lf_allocator_type  = allocator_type<unsigned char>;
 
                     using address_type              = rank_type;
@@ -250,7 +251,7 @@ namespace gridtools {
                                );
                     }
 
-                    inline rma::memory_pool<region_provider> *get_memory_pool() {
+                    inline alloctools::rma::memory_pool<region_provider> *get_memory_pool() {
                         return &m_shared_state->m_controller->get_memory_pool_ptr();
                     }
 
