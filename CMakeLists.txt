@@ -33,10 +33,39 @@ endif()
 set(GHEX_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
 list(APPEND CMAKE_MODULE_PATH "${GHEX_MODULE_PATH}")
 
+include(FetchContent)
+
 find_package(MPI REQUIRED)
 find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenMP)
 find_library(LIBRT rt REQUIRED)
+
+# ------------------------------------------------------------------------------
+# Build/Download hwmalloc
+# if the user(e.g. developer) has already put hwmalloc in extern/hwmalloc
+# then set source location to that, and disable automatic git updates
+# ------------------------------------------------------------------------------
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/extern/hwmalloc)
+  message(STATUS "Using HWMALLOC in source tree ${CMAKE_CURRENT_SOURCE_DIR}/extern/hwmalloc")
+  set(FETCHCONTENT_SOURCE_DIR_HWMALLOC ${CMAKE_CURRENT_SOURCE_DIR}/extern/hwmalloc CACHE PATH "")
+  set(FETCHCONTENT_UPDATES_DISCONNECTED_HWMALLOC ON)
+endif()
+
+# if GHEX is using libfabric, then enable it in hwmalloc
+set(HWMALLOC_WITH_LIBFABRIC ${GHEX_USE_LIBFABRIC})
+set(HWMALLOC_LIBFABRIC_PROVIDER ${GHEX_LIBFABRIC_PROVIDER})
+set(HWMALLOC_WITH_MPI ON)
+
+fetchcontent_declare(
+  hwmalloc
+  GIT_REPOSITORY git@github.com:boeschf/hwmalloc.git
+  GIT_TAG libfabric_support
+)
+fetchcontent_getproperties(hwmalloc)
+if(NOT hwmalloc_POPULATED)
+  fetchcontent_populate(hwmalloc)
+  add_subdirectory(${hwmalloc_SOURCE_DIR} ${hwmalloc_BINARY_DIR})
+endif()
 
 set(_required_gridtools_version "2.0.0")
 if(NOT _gridtools_already_fetched)
@@ -103,7 +132,7 @@ target_include_directories(ghexlib INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
     )
-target_link_libraries(ghexlib INTERFACE GridTools::gridtools MPI::MPI_CXX)
+target_link_libraries(ghexlib INTERFACE GridTools::gridtools MPI::MPI_CXX hwmalloc)
 if (GHEX_USE_UCP)
     target_link_libraries(ghexlib INTERFACE UCP::libucp)
     if (GHEX_USE_PMIX)
@@ -163,7 +192,7 @@ if (GHEX_BUILD_TESTS OR GHEX_BUILD_BENCHMARKS)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG        release-1.10.0
+        GIT_TAG        release-1.11.0
     )
     FetchContent_GetProperties(googletest)
     if(NOT googletest_POPULATED)
